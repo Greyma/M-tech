@@ -4,216 +4,263 @@ const FileService = require('../services/fileService');
 class ProduitController {
     static async getAllProduits(req, res) {
         try {
-            
             await db.testConnection();
             
-            const results = await db.query(
-                "SELECT id, categorie_id, nom, description, prix_vente, prix_achat, quantite, reference, image FROM produits"
-            );
-    
-            // 3. Vérification approfondie des résultats
-            if (!results || !Array.isArray(results) || results.length === 0) {
+            const [produits] = await db.query(`
+                SELECT 
+                    p.id, p.nom, p.marque, p.description, 
+                    p.processeur, p.ram, p.stockage, p.gpu,
+                    p.batterie, p.ecran_tactile, p.ecran_type,
+                    p.code_amoire, p.reference, p.etat,
+                    p.prix_achat, p.prix_vente, p.quantite,
+                    p.categorie_id, p.image,
+                    c.nom AS categorie_nom
+                FROM produits p
+                LEFT JOIN categories c ON p.categorie_id = c.id
+            `);
+
+            if (!produits || produits.length === 0) {
                 return res.status(404).json({ 
                     success: false,
                     message: "Aucun produit trouvé",
                     data: []
                 });
             }
-    
-            const produits = results.map(produit => ({
-                id: produit?.id || null,
-                categorie_id: produit?.categorie_id || null,
-                nom: produit?.nom || '',
-                description: produit?.description || '',
-                prix_vente: produit?.prix_vente ? Number(produit.prix_vente) : 0,
-                prix_achat: produit?.prix_achat ? Number(produit.prix_achat) : 0,
-                quantite: produit?.quantite ? Number(produit.quantite) : 0,
-                reference: produit?.reference || '',
-                image: produit?.image ? JSON.parse(produit.image) : []
+
+            const formattedProduits = produits.map(p => ({
+                id: p.id,
+                nom: p.nom || '',
+                marque: p.marque || '',
+                description: p.description || '',
+                processeur: p.processeur || '',
+                ram: p.ram || '',
+                stockage: p.stockage || '',
+                gpu: p.gpu || '',
+                batterie: p.batterie || '',
+                ecran_tactile: Boolean(p.ecran_tactile),
+                ecran_type: p.ecran_type || '',
+                code_amoire: p.code_amoire || '',
+                reference: p.reference || '',
+                etat: p.etat || 'neuf',
+                prix_achat: Number(p.prix_achat) || 0,
+                prix_vente: Number(p.prix_vente) || 0,
+                quantite: Number(p.quantite) || 0,
+                categorie_id: p.categorie_id || null,
+                categorie_nom: p.categorie_nom || '',
+                image: p.image ? JSON.parse(p.image) : []
             }));
-    
+
             res.status(200).json({ 
                 success: true,
                 message: "Produits récupérés avec succès",
-                data: produits,
-                count: produits.length
+                data: formattedProduits,
+                count: formattedProduits.length
             });
-    
+
         } catch (err) {
             console.error('Erreur dans getAllProduits:', err);
             res.status(500).json({ 
                 success: false,
                 message: "Erreur lors de la récupération des produits",
-                error: process.env.NODE_ENV === 'development' ? err.message : undefined,
-                details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+                error: process.env.NODE_ENV === 'development' ? err.message : undefined
             });
         }
     }
-
 
     static async getProduitById(req, res) {
         try {
             const produitId = parseInt(req.params.id, 10);
             if (isNaN(produitId)) {
-                return res.status(400).json({ message: "ID invalide" });
+                return res.status(400).json({ 
+                    success: false,
+                    message: "ID invalide" 
+                });
             }
 
-            const [results] = await db.query(
-                `SELECT id, categorie_id, nom, description, prix_vente, 
-                 prix_achat, quantite, reference, image 
-                 FROM produits WHERE id = ?`,
-                [produitId]
-            );
+            const [produit] = await db.query(`
+                SELECT 
+                    p.id, p.nom, p.marque, p.description, 
+                    p.processeur, p.ram, p.stockage, p.gpu,
+                    p.batterie, p.ecran_tactile, p.ecran_type,
+                    p.code_amoire, p.reference, p.etat,
+                    p.prix_achat, p.prix_vente, p.quantite,
+                    p.categorie_id, p.image,
+                    c.nom AS categorie_nom
+                FROM produits p
+                LEFT JOIN categories c ON p.categorie_id = c.id
+                WHERE p.id = ?
+            `, [produitId]);
 
-            if (results.length === 0) {
-                return res.status(404).json({ message: "Produit non trouvé" });
+            if (!produit || produit.length === 0) {
+                return res.status(404).json({ 
+                    success: false,
+                    message: "Produit non trouvé" 
+                });
             }
 
-            const produit = results[0];
+            const p = produit[0];
+            const result = {
+                id: p.id,
+                nom: p.nom || '',
+                marque: p.marque || '',
+                description: p.description || '',
+                processeur: p.processeur || '',
+                ram: p.ram || '',
+                stockage: p.stockage || '',
+                gpu: p.gpu || '',
+                batterie: p.batterie || '',
+                ecran_tactile: Boolean(p.ecran_tactile),
+                ecran_type: p.ecran_type || '',
+                code_amoire: p.code_amoire || '',
+                reference: p.reference || '',
+                etat: p.etat || 'neuf',
+                prix_achat: Number(p.prix_achat) || 0,
+                prix_vente: Number(p.prix_vente) || 0,
+                quantite: Number(p.quantite) || 0,
+                categorie_id: p.categorie_id || null,
+                categorie_nom: p.categorie_nom || '',
+                image: p.image ? JSON.parse(p.image) : []
+            };
+
             res.status(200).json({
-                data: {
-                    id: produit.id,
-                    categorie_id: produit.categorie_id,
-                    nom: produit.nom,
-                    description: produit.description,
-                    prix_vente: produit.prix_vente,
-                    prix_achat: produit.prix_achat,
-                    quantite: produit.quantite,
-                    reference: produit.reference,
-                    image: produit.image,
-                },
+                success: true,
                 message: "Produit récupéré avec succès",
+                data: result
             });
         } catch (err) {
             console.error("Erreur lors de la récupération du produit :", err);
             res.status(500).json({ 
-                message: "Erreur serveur", 
-                error: err.message 
+                success: false,
+                message: "Erreur serveur",
+                error: process.env.NODE_ENV === 'development' ? err.message : undefined
             });
         }
     }
 
     static async createProduit(req, res) {
         try {
-            const { 
-                categorie_id, 
-                nom, 
-                description, 
-                prix_vente, 
-                prix_achat, 
-                quantite, 
-                reference 
+            const {
+                nom,
+                marque,
+                description,
+                processeur,
+                ram,
+                stockage,
+                gpu,
+                batterie,
+                ecran_tactile,
+                ecran_type,
+                code_amoire,
+                reference,
+                etat,
+                prix_achat,
+                prix_vente,
+                quantite,
+                categorie_id
             } = req.body;
-
-            // Validation des champs requis
-            if (!(categorie_id && nom && prix_vente && prix_achat && quantite && reference)) {
-                return res.status(400).json({ 
-                    message: "Tous les champs requis doivent être fournis" 
+    
+            // Validation des champs obligatoires
+            if (!nom || !prix_achat || !prix_vente || !quantite || !categorie_id) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Les champs nom, prix_achat, prix_vente, quantite et categorie_id sont obligatoires"
                 });
             }
-
+    
             // Traitement des images
             const imagePaths = FileService.processUploadedFiles(req.files);
-
-            // Insertion en base de données
+    
             const [results] = await db.query(
-                `INSERT INTO produits 
-                 (categorie_id, nom, description, prix_vente, prix_achat, quantite, reference, image)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    categorie_id,
+                `INSERT INTO produits SET ?`,
+                {
                     nom,
+                    marque,
                     description,
-                    prix_vente,
-                    prix_achat,
-                    quantite,
+                    processeur,
+                    ram,
+                    stockage,
+                    gpu,
+                    batterie,
+                    ecran_tactile: ecran_tactile === 'true',
+                    ecran_type,
+                    code_amoire,
                     reference,
-                    JSON.stringify(imagePaths)
-                ]
+                    etat: etat || 'neuf',
+                    prix_achat,
+                    prix_vente,
+                    quantite,
+                    categorie_id,
+                    image: JSON.stringify(imagePaths)
+                }
             );
-
+    
             res.status(201).json({
+                success: true,
+                message: "Produit créé avec succès",
                 data: {
                     id: results.insertId,
-                    categorie_id,
-                    nom,
-                    description,
-                    prix_vente,
-                    prix_achat,
-                    quantite,
-                    reference,
-                    image: imagePaths
-                },
-                message: "Produit créé avec succès"
+                    ...req.body,
+                    image: imagePaths,
+                    ecran_tactile: ecran_tactile === 'true'
+                }
             });
         } catch (error) {
-            console.error("Erreur lors de la création du produit :", error);
-            res.status(500).json({ 
-                message: "Erreur serveur", 
-                error: error.message 
+            console.error("Erreur création produit:", error);
+            res.status(500).json({
+                success: false,
+                message: "Erreur serveur",
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }
 
     static async updateProduit(req, res) {
         try {
-            const { 
-                categorie_id, 
-                nom, 
-                description, 
-                prix_vente, 
-                prix_achat, 
-                quantite, 
-                reference 
-            } = req.body;
-
-            // Validation des champs requis
-            if (!(categorie_id && nom && prix_vente && prix_achat && quantite && reference)) {
-                return res.status(400).json({ 
-                    message: "Tous les champs requis doivent être fournis" 
+            const produitId = req.params.id;
+            const updates = req.body;
+    
+            // Conversion pour le champ booléen
+            if (updates.ecran_tactile !== undefined) {
+                updates.ecran_tactile = updates.ecran_tactile === 'true';
+            }
+    
+            // Mise à jour des images si fournies
+            if (req.files && req.files.length > 0) {
+                updates.image = JSON.stringify(FileService.processUploadedFiles(req.files));
+            }
+    
+            const [results] = await db.query(
+                `UPDATE produits SET ? WHERE id = ?`,
+                [updates, produitId]
+            );
+    
+            if (results.affectedRows === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Produit non trouvé"
                 });
             }
-
-            // Mise à jour en base de données
-            const [results] = await db.query(
-                `UPDATE produits 
-                 SET categorie_id = ?, nom = ?, description = ?, 
-                     prix_vente = ?, prix_achat = ?, quantite = ?, reference = ? 
-                 WHERE id = ?`,
-                [
-                    categorie_id, 
-                    nom, 
-                    description, 
-                    prix_vente, 
-                    prix_achat, 
-                    quantite, 
-                    reference, 
-                    req.params.id
-                ]
+    
+            // Récupérer le produit mis à jour pour le retourner
+            const [updatedProduit] = await db.query(
+                `SELECT * FROM produits WHERE id = ?`,
+                [produitId]
             );
-
-            if (results.affectedRows === 0) {
-                return res.status(404).json({ message: "Produit non trouvé" });
-            }
-
-            res.status(200).json({ 
-                data: { 
-                    id: req.params.id, 
-                    categorie_id, 
-                    nom, 
-                    description, 
-                    prix_vente, 
-                    prix_achat, 
-                    quantite, 
-                    reference 
-                }, 
-                message: "Produit mis à jour avec succès" 
+    
+            res.json({
+                success: true,
+                message: "Produit mis à jour avec succès",
+                data: {
+                    ...updatedProduit[0],
+                    image: updatedProduit[0].image ? JSON.parse(updatedProduit[0].image) : []
+                }
             });
-        } catch (err) {
-            console.error("Erreur lors de la mise à jour du produit :", err);
-            res.status(500).json({ 
-                message: "Erreur serveur", 
-                error: err.message 
+        } catch (error) {
+            console.error("Erreur mise à jour produit:", error);
+            res.status(500).json({
+                success: false,
+                message: "Erreur serveur",
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }
@@ -222,26 +269,49 @@ class ProduitController {
         try {
             const produitId = req.params.id;
             if (!produitId) {
-                return res.status(400).json({ message: "ID du produit manquant" });
+                return res.status(400).json({ 
+                    success: false,
+                    message: "ID du produit manquant" 
+                });
             }
 
+            // Vérifier d'abord si le produit existe
+            const [produit] = await db.query(
+                `SELECT id, image FROM produits WHERE id = ?`,
+                [produitId]
+            );
+
+            if (!produit || produit.length === 0) {
+                return res.status(404).json({ 
+                    success: false,
+                    message: "Produit non trouvé" 
+                });
+            }
+
+            // Supprimer les images associées si elles existent
+            if (produit[0].image) {
+                const images = JSON.parse(produit[0].image);
+                for (const imagePath of images) {
+                    await FileService.deleteFile(imagePath);
+                }
+            }
+
+            // Supprimer le produit
             const [results] = await db.query(
                 "DELETE FROM produits WHERE id = ?",
                 [produitId]
             );
 
-            if (results.affectedRows === 0) {
-                return res.status(404).json({ message: "Produit non trouvé" });
-            }
-
             res.status(200).json({ 
+                success: true,
                 message: "Produit supprimé avec succès" 
             });
         } catch (err) {
             console.error("Erreur lors de la suppression du produit :", err);
             res.status(500).json({ 
+                success: false,
                 message: "Erreur serveur lors de la suppression", 
-                error: err.message 
+                error: process.env.NODE_ENV === 'development' ? err.message : undefined
             });
         }
     }
