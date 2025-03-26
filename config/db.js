@@ -14,7 +14,8 @@ const adminPool = mysql.createPool({
     user: process.env.DB_USER || config.db.user,
     password: process.env.DB_PASSWORD || config.db.password,
     waitForConnections: true,
-    connectionLimit: 5
+    namedPlaceholders: true,
+    connectionLimit: 10
 });
 
 // Configuration de la pool principale
@@ -24,6 +25,7 @@ const appPool = mysql.createPool({
     password: process.env.DB_PASSWORD || config.db.password,
     database: process.env.DB_NAME || config.db.database,
     waitForConnections: true,
+    namedPlaceholders: true,
     connectionLimit: 10,
     queueLimit: 0,
     timezone: '+00:00',
