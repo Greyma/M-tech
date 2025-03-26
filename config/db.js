@@ -100,7 +100,6 @@ const databaseSchema = {
     ]
 };
 
-
 async function initializeDatabase() {
     let adminConn;
     try {
