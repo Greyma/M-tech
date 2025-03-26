@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const nocache = require('nocache');
 const app = express();
-const port = process.env.PORT || 5050;
+const port = process.env.PORT || 5478;
 
 // Import des routes
 const authRoutes = require('./routes/authRoutes');
