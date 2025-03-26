@@ -7,6 +7,7 @@ const config = {
         password: "Aw&?PA#2wuY*",
         database: "kdkrvfrx_M-tech",
         waitForConnections: true,
+        namedPlaceholders: true,
         connectionLimit: 10,
         queueLimit: 0
     },
