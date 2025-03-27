@@ -22,8 +22,8 @@ class FactureController {
                 ORDER BY f.date_creation DESC
             `);
 
-            if (!factures || factures.length === 0) {
-                return this.handleNotFound(res, "Aucune facture trouvée");
+            if (!factures?.length) {
+                return FactureController.handleNotFound(res, "Aucune facture trouvée");
             }
 
             const facturesMap = factures.reduce((acc, row) => {
@@ -40,7 +40,7 @@ class FactureController {
                 }
 
                 if (row.produit_id) {
-                    acc[factureId].produits.push(this.formatProduitFacture(row));
+                    acc[factureId].produits.push(FactureController.formatProduitFacture(row));
                 }
 
                 return acc;
@@ -55,7 +55,7 @@ class FactureController {
 
         } catch (err) {
             console.error("Erreur lors de la récupération des factures:", err);
-            this.handleServerError(res, err, "récupération des factures");
+            FactureController.handleServerError(res, err, "récupération des factures");
         }
     }
 
@@ -64,10 +64,11 @@ class FactureController {
         let conn;
 
         // Validation des données
-        if (!nom_client || !Array.isArray(produits) || produits.length === 0) {
-            return this.handleClientError(
+        if (!nom_client || typeof nom_client !== 'string' || nom_client.trim() === '' ||
+            !Array.isArray(produits) || produits.length === 0) {
+            return FactureController.handleClientError(
                 res, 
-                "Le nom du client et les produits sont requis"
+                "Le nom du client (chaîne non vide) et une liste de produits non vide sont requis"
             );
         }
 
@@ -77,19 +78,19 @@ class FactureController {
 
             // Vérification et calcul du prix total
             const { prix_total, produitsVerifies, errors } = 
-                await this.verifierProduits(conn, produits);
+                await FactureController.verifierProduits(conn, produits);
 
             if (errors.length > 0) {
                 await conn.rollback();
-                return this.handleClientError(res, errors.join(' '));
+                return FactureController.handleClientError(res, errors.join(' '));
             }
 
             // Création de la facture
-            const factureId = await this.creerFacture(conn, nom_client, prix_total);
+            const factureId = await FactureController.creerFacture(conn, nom_client.trim(), prix_total);
             
             // Ajout des articles et mise à jour du stock
-            await this.ajouterArticlesFacture(conn, factureId, produitsVerifies);
-            await this.mettreAJourStocks(conn, produitsVerifies);
+            await FactureController.ajouterArticlesFacture(conn, factureId, produitsVerifies);
+            await FactureController.mettreAJourStocks(conn, produitsVerifies);
 
             await conn.commit();
             
@@ -97,51 +98,57 @@ class FactureController {
                 success: true,
                 message: "Facture créée avec succès", 
                 data: { 
-                    factureId, 
-                    nom_client, 
-                    prix_total, 
-                    produits: produitsVerifies 
+                    id: factureId, 
+                    nom_client: nom_client.trim(), 
+                    prix_total: Number(prix_total).toFixed(2), 
+                    produits: produitsVerifies,
+                    date_creation: new Date()
                 } 
             });
 
         } catch (error) {
             if (conn) await conn.rollback();
             console.error("Erreur lors de la création de la facture:", error);
-            this.handleServerError(res, error, "création de la facture");
+            FactureController.handleServerError(res, error, "création de la facture");
         } finally {
             if (conn) conn.release();
         }
     }
 
     static async deleteFacture(req, res) {
-        const factureId = req.params.id;
+        const factureId = parseInt(req.params.id, 10);
         let conn;
+
+        if (isNaN(factureId)) {
+            return FactureController.handleClientError(res, "ID de facture invalide");
+        }
 
         try {
             conn = await db.getConnection();
             await conn.beginTransaction();
 
-            const articles = await this.recupererArticlesFacture(conn, factureId);
+            const articles = await FactureController.recupererArticlesFacture(conn, factureId);
             
-            if (articles.length === 0) {
-                return this.handleNotFound(res, "Facture introuvable ou déjà supprimée");
+            if (!articles?.length) {
+                await conn.rollback();
+                return FactureController.handleNotFound(res, "Facture introuvable ou déjà supprimée");
             }
 
-            await this.restaurerStocks(conn, articles);
-            await this.supprimerArticlesFacture(conn, factureId);
-            await this.supprimerFacture(conn, factureId);
+            await FactureController.restaurerStocks(conn, articles);
+            await FactureController.supprimerArticlesFacture(conn, factureId);
+            await FactureController.supprimerFacture(conn, factureId);
 
             await conn.commit();
             
             res.status(200).json({ 
                 success: true,
-                message: `Facture ${factureId} supprimée avec succès.` 
+                message: `Facture ${factureId} supprimée avec succès`
             });
 
         } catch (error) {
             if (conn) await conn.rollback();
             console.error("Erreur lors de la suppression de la facture:", error);
-            this.handleServerError(res, error, "suppression de la facture");
+            FactureController.handleServerError(res, error, "suppression de la facture");
         } finally {
             if (conn) conn.release();
         }
@@ -154,10 +161,11 @@ class FactureController {
         const errors = [];
 
         for (const produit of produits) {
-            const { produit_id, quantite } = produit;
+            const produit_id = parseInt(produit.produit_id);
+            const quantite = parseInt(produit.quantite);
             
-            if (!produit_id || quantite <= 0) {
-                errors.push("Chaque produit doit avoir un ID et une quantité valide");
+            if (isNaN(produit_id) || isNaN(quantite) || quantite <= 0) {
+                errors.push("Chaque produit doit avoir un ID et une quantité valide (nombre positif)");
                 continue;
             }
 
@@ -166,21 +174,21 @@ class FactureController {
                 [produit_id]
             );
 
-            if (stockResults.length === 0) {
-                errors.push(`Le produit avec l'ID ${produit_id} n'existe pas.`);
+            if (!stockResults?.length) {
+                errors.push(`Le produit avec l'ID ${produit_id} n'existe pas`);
                 continue;
             }
 
             const stock = stockResults[0];
             if (stock.quantite < quantite) {
-                errors.push(`Le produit ${stock.nom} n'a pas assez de stock.`);
+                errors.push(`Stock insuffisant pour ${stock.nom} (dispo: ${stock.quantite})`);
                 continue;
             }
 
             produitsVerifies.push({ 
                 produit_id, 
                 quantite, 
-                prix_vente: stock.prix_vente, 
+                prix_vente: Number(stock.prix_vente), 
                 nom: stock.nom 
             });
             prix_total += stock.prix_vente * quantite;
@@ -206,12 +214,12 @@ class FactureController {
     }
 
     static async mettreAJourStocks(conn, produits) {
-        for (const produit of produits) {
-            await conn.query(
+        await Promise.all(produits.map(produit => 
+            conn.query(
                 "UPDATE produits SET quantite = quantite - ? WHERE id = ?", 
                 [produit.quantite, produit.produit_id]
-            );
-        }
+            )
+        ));
     }
 
     static async recupererArticlesFacture(conn, factureId) {
@@ -223,12 +231,12 @@ class FactureController {
     }
 
     static async restaurerStocks(conn, articles) {
-        for (const { produit_id, quantite } of articles) {
-            await conn.query(
+        await Promise.all(articles.map(({ produit_id, quantite }) => 
+            conn.query(
                 'UPDATE produits SET quantite = quantite + ? WHERE id = ?',
                 [quantite, produit_id]
-            );
-        }
+            )
+        ));
     }
 
     static async supprimerArticlesFacture(conn, factureId) {
@@ -239,10 +247,13 @@ class FactureController {
     }
 
     static async supprimerFacture(conn, factureId) {
-        await conn.query(
+        const [result] = await conn.query(
             'DELETE FROM factures WHERE id = ?',
             [factureId]
         );
+        if (!result.affectedRows) {
+            throw new Error("Facture non trouvée lors de la suppression");
+        }
     }
 
     static formatProduitFacture(row) {
@@ -252,7 +263,7 @@ class FactureController {
             quantite: Number(row.produit_quantite),
             prix_vente: Number(row.produit_prix_vente).toFixed(2),
             prix_achat: Number(row.produit_prix_achat).toFixed(2),
-            prix_total: (row.produit_prix_vente * row.produit_quantite).toFixed(2)
+            prix_total: Number(row.produit_prix_vente * row.produit_quantite).toFixed(2)
         };
     }
 

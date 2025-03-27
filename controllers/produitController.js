@@ -1,15 +1,6 @@
 const db = require('../config/db');
 const FileService = require('../services/fileService');
 
-// Fonction utilitaire pour nettoyer les paramètres
-const cleanParams = (params) => {
-  return Object.fromEntries(
-    Object.entries(params)
-      .filter(([_, value]) => value !== undefined && value !== '')
-      .map(([key, value]) => [key, value === null ? null : value])
-  );
-};
-
 class ProduitController {
   static async getAllProduits(req, res) {
     try {
@@ -28,7 +19,7 @@ class ProduitController {
         LEFT JOIN categories c ON p.categorie_id = c.id
       `);
 
-      if (!produits || produits.length === 0) {
+      if (!produits?.length) {
         return res.status(404).json({ 
           success: false,
           message: "Aucun produit trouvé",
@@ -36,7 +27,7 @@ class ProduitController {
         });
       }
 
-      const formattedProduits = produits.map(this.formatProduit);
+      const formattedProduits = produits.map(produit => this.formatProduit(produit));
 
       res.status(200).json({ 
         success: true,
@@ -58,7 +49,7 @@ class ProduitController {
         return this.handleClientError(res, "ID invalide");
       }
 
-      const [produit] = await db.query(`
+      const [produits] = await db.query(`
         SELECT 
           p.id, p.nom, p.marque, p.description, 
           p.processeur, p.ram, p.stockage, p.gpu,
@@ -72,14 +63,14 @@ class ProduitController {
         WHERE p.id = ?
       `, [produitId]);
 
-      if (!produit || produit.length === 0) {
+      if (!produits?.length) {
         return this.handleNotFound(res, "Produit non trouvé");
       }
 
       res.status(200).json({
         success: true,
         message: "Produit récupéré avec succès",
-        data: this.formatProduit(produit[0])
+        data: this.formatProduit(produits[0])
       });
     } catch (err) {
       console.error("Erreur lors de la récupération du produit :", err);
@@ -89,151 +80,165 @@ class ProduitController {
 
   static async createProduit(req, res) {
     try {
-        const defaultValues = {
-            etat: 'neuf',
-            ecran_tactile: false,
-            quantite: 0,
-            image: null
-        };
+      const produitData = {
+        nom: req.body.nom,
+        marque: req.body.marque ?? null,
+        description: req.body.description ?? null,
+        processeur: req.body.processeur ?? null,
+        ram: req.body.ram ?? null,
+        stockage: req.body.stockage ?? null,
+        gpu: req.body.gpu ?? null,
+        batterie: req.body.batterie ?? null,
+        ecran_tactile: req.body.ecran_tactile === 'true',
+        ecran_type: req.body.ecran_type ?? null,
+        code_amoire: req.body.code_amoire ?? null,
+        reference: req.body.reference ?? null,
+        etat: req.body.etat || 'neuf',
+        prix_achat: parseFloat(req.body.prix_achat),
+        prix_vente: parseFloat(req.body.prix_vente),
+        quantite: parseInt(req.body.quantite) || 0,
+        categorie_id: parseInt(req.body.categorie_id),
+        image: req.files?.length ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null
+      };
 
-        const produitData = {
-            ...defaultValues,
-            ...req.body,
-            ecran_tactile: req.body.ecran_tactile === 'true',
-            image: req.files ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null
-        };
+      // Validation des champs obligatoires
+      if (!produitData.nom || 
+          isNaN(produitData.prix_achat) || 
+          isNaN(produitData.prix_vente) || 
+          isNaN(produitData.categorie_id)) {
+        return ProduitController.handleClientError(res, "Champs obligatoires manquants ou invalides");
+      }
 
-        // Validation des champs obligatoires
-        const requiredFields = ['nom', 'prix_achat', 'prix_vente', 'quantite', 'categorie_id'];
-        const missingFields = requiredFields.filter(field => {
-            const value = produitData[field];
-            return value === undefined || value === null || value === '';
-        });
+      // Vérifier si la catégorie existe
+      const [categoryCheck] = await db.query(
+        'SELECT id FROM categories WHERE id = ?',
+        [produitData.categorie_id]
+      );
 
-        if (missingFields.length > 0) {
-            return this.handleClientError(
-                res, 
-                `Champs obligatoires manquants: ${missingFields.join(', ')}`,
-                400
-            );
+      if (!categoryCheck?.length) {
+        return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
+      }
+
+      const [result] = await db.query(
+        `INSERT INTO produits (
+          nom, marque, description, processeur, ram, stockage, 
+          gpu, batterie, ecran_tactile, ecran_type, code_amoire, 
+          reference, etat, prix_achat, prix_vente, quantite, 
+          categorie_id, image
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        Object.values(produitData)
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Produit créé avec succès",
+        data: {
+          id: result.insertId,
+          ...produitData,
+          image: produitData.image ? JSON.parse(produitData.image) : null
         }
-
-        // Convertir les nombres
-        produitData.prix_achat = parseFloat(produitData.prix_achat);
-        produitData.prix_vente = parseFloat(produitData.prix_vente);
-        produitData.quantite = parseInt(produitData.quantite);
-
-        const [result] = await db.query(
-            `INSERT INTO produits SET ?`,
-            [produitData]
-        );
-
-        // Récupérer le produit créé avec les valeurs NULL converties
-        const [newProduit] = await db.query(
-            `SELECT * FROM produits WHERE id = ?`,
-            [result.insertId]
-        );
-
-        res.status(201).json({
-            success: true,
-            message: "Produit créé avec succès",
-            data: this.formatProduit(newProduit[0])
-        });
+      });
 
     } catch (error) {
-        console.error("Erreur création produit:", error);
-        this.handleServerError(res, error, "création du produit");
+      console.error("Erreur création produit:", error);
+      ProduitController.handleServerError(res, error, "création du produit");
     }
-}
+  }
 
-static async updateProduit(req, res) {
+  static async updateProduit(req, res) {
     try {
-        const produitId = req.params.id;
-        if (!produitId) {
-            return this.handleClientError(res, "ID du produit manquant");
-        }
+      const produitId = parseInt(req.params.id);
+      if (isNaN(produitId)) {
+        return this.handleClientError(res, "ID du produit invalide");
+      }
 
-        const updates = {
-            ...req.body,
-            ecran_tactile: req.body.ecran_tactile !== undefined 
-                ? req.body.ecran_tactile === 'true' 
-                : undefined
-        };
+      const updates = {
+        nom: req.body.nom,
+        marque: req.body.marque ?? undefined,
+        description: req.body.description ?? undefined,
+        processeur: req.body.processeur ?? undefined,
+        ram: req.body.ram ?? undefined,
+        stockage: req.body.stockage ?? undefined,
+        gpu: req.body.gpu ?? undefined,
+        batterie: req.body.batterie ?? undefined,
+        ecran_tactile: req.body.ecran_tactile !== undefined ? req.body.ecran_tactile === 'true' : undefined,
+        ecran_type: req.body.ecran_type ?? undefined,
+        code_amoire: req.body.code_amoire ?? undefined,
+        reference: req.body.reference ?? undefined,
+        etat: req.body.etat,
+        prix_achat: req.body.prix_achat ? parseFloat(req.body.prix_achat) : undefined,
+        prix_vente: req.body.prix_vente ? parseFloat(req.body.prix_vente) : undefined,
+        quantite: req.body.quantite ? parseInt(req.body.quantite) : undefined,
+        categorie_id: req.body.categorie_id ? parseInt(req.body.categorie_id) : undefined
+      };
 
-        // Mise à jour des images si fournies
-        if (req.files && req.files.length > 0) {
-            updates.image = JSON.stringify(FileService.processUploadedFiles(req.files));
-        }
+      if (req.files?.length) {
+        updates.image = JSON.stringify(FileService.processUploadedFiles(req.files));
+      }
 
-        // Supprimer les champs non définis
-        const cleanUpdates = Object.fromEntries(
-            Object.entries(updates)
-                .filter(([_, value]) => value !== undefined)
-        );
+      const cleanUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([_, value]) => value !== undefined)
+      );
 
-        if (Object.keys(cleanUpdates).length === 0) {
-            return this.handleClientError(res, "Aucune donnée valide à mettre à jour");
-        }
+      if (!Object.keys(cleanUpdates).length) {
+        return this.handleClientError(res, "Aucune donnée valide à mettre à jour");
+      }
 
-        const [results] = await db.query(
-            `UPDATE produits SET ? WHERE id = ?`,
-            [cleanUpdates, produitId]
-        );
+      const [results] = await db.query(
+        `UPDATE produits SET ? WHERE id = ?`,
+        [cleanUpdates, produitId]
+      );
 
-        if (results.affectedRows === 0) {
-            return this.handleNotFound(res, "Produit non trouvé");
-        }
+      if (!results.affectedRows) {
+        return this.handleNotFound(res, "Produit non trouvé");
+      }
 
-        // Récupérer le produit mis à jour avec les valeurs NULL
-        const [updatedProduit] = await db.query(
-            `SELECT * FROM produits WHERE id = ?`,
-            [produitId]
-        );
+      const [updatedProduit] = await db.query(
+        `SELECT * FROM produits WHERE id = ?`,
+        [produitId]
+      );
 
-        res.json({
-            success: true,
-            message: "Produit mis à jour avec succès",
-            data: this.formatProduit(updatedProduit[0])
-        });
+      res.json({
+        success: true,
+        message: "Produit mis à jour avec succès",
+        data: this.formatProduit(updatedProduit[0])
+      });
 
     } catch (error) {
-        console.error("Erreur mise à jour produit:", error);
-        this.handleServerError(res, error, "mise à jour du produit");
+      console.error("Erreur mise à jour produit:", error);
+      this.handleServerError(res, error, "mise à jour du produit");
     }
-}
+  }
 
   static async deleteProduit(req, res) {
     try {
-      const produitId = req.params.id;
-      if (!produitId) {
-        return this.handleClientError(res, "ID du produit manquant");
+      const produitId = parseInt(req.params.id);
+      if (isNaN(produitId)) {
+        return this.handleClientError(res, "ID du produit invalide");
       }
 
-      // Vérifier si le produit existe
-      const [produit] = await db.query(
+      const [produits] = await db.query(
         `SELECT id, image FROM produits WHERE id = ?`,
         [produitId]
       );
 
-      if (!produit || produit.length === 0) {
+      if (!produits?.length) {
         return this.handleNotFound(res, "Produit non trouvé");
       }
 
-      // Supprimer les images associées
-      if (produit[0].image) {
-        const images = JSON.parse(produit[0].image);
-        for (const imagePath of images) {
-          await FileService.deleteFile(imagePath).catch(err => 
-            console.error(`Erreur suppression image ${imagePath}:`, err)
-          );
-        }
+      const produit = produits[0];
+      if (produit.image) {
+        const images = JSON.parse(produit.image);
+        await Promise.all(
+          images.map(imagePath => 
+            FileService.deleteFile(imagePath).catch(err => 
+              console.error(`Erreur suppression image ${imagePath}:`, err)
+            )
+          )
+        );
       }
 
-      // Supprimer le produit
-      const [results] = await db.query(
-        "DELETE FROM produits WHERE id = ?",
-        [produitId]
-      );
+      await db.query("DELETE FROM produits WHERE id = ?", [produitId]);
 
       res.status(200).json({ 
         success: true,
@@ -245,37 +250,29 @@ static async updateProduit(req, res) {
     }
   }
 
-  // Méthodes utilitaires
   static formatProduit(produit) {
     return {
-        id: produit.id,
-        nom: produit.nom || '',
-        marque: produit.marque ?? null,
-        description: produit.description ?? null,
-        processeur: produit.processeur ?? null,
-        ram: produit.ram ?? null,
-        stockage: produit.stockage ?? null,
-        gpu: produit.gpu ?? null,
-        batterie: produit.batterie ?? null,
-        ecran_tactile: Boolean(produit.ecran_tactile),
-        ecran_type: produit.ecran_type ?? null,
-        code_amoire: produit.code_amoire ?? null,
-        reference: produit.reference ?? null,
-        etat: produit.etat || 'neuf',
-        prix_achat: Number(produit.prix_achat) || 0,
-        prix_vente: Number(produit.prix_vente) || 0,
-        quantite: Number(produit.quantite) || 0,
-        categorie_id: produit.categorie_id ?? null,
-        categorie_nom: produit.categorie_nom ?? null,
-        image: produit.image ? JSON.parse(produit.image) : null
+      id: produit.id,
+      nom: produit.nom || '',
+      marque: produit.marque ?? null,
+      description: produit.description ?? null,
+      processeur: produit.processeur ?? null,
+      ram: produit.ram ?? null,
+      stockage: produit.stockage ?? null,
+      gpu: produit.gpu ?? null,
+      batterie: produit.batterie ?? null,
+      ecran_tactile: Boolean(produit.ecran_tactile),
+      ecran_type: produit.ecran_type ?? null,
+      code_amoire: produit.code_amoire ?? null,
+      reference: produit.reference ?? null,
+      etat: produit.etat || 'neuf',
+      prix_achat: Number(produit.prix_achat) || 0,
+      prix_vente: Number(produit.prix_vente) || 0,
+      quantite: Number(produit.quantite) || 0,
+      categorie_id: produit.categorie_id ?? null,
+      categorie_nom: produit.categorie_nom ?? null,
+      image: produit.image ? JSON.parse(produit.image) : null
     };
-}
-
-  static handleClientError(res, message, statusCode = 400) {
-    return res.status(statusCode).json({
-      success: false,
-      message
-    });
   }
 
   static handleNotFound(res, message = "Ressource non trouvée") {
@@ -285,6 +282,13 @@ static async updateProduit(req, res) {
     });
   }
 
+  static handleClientError(res, message, statusCode = 400) {
+    return res.status(statusCode).json({
+      success: false,
+      message
+    });
+  }
+  
   static handleServerError(res, error, context = "") {
     return res.status(500).json({ 
       success: false,
@@ -292,6 +296,7 @@ static async updateProduit(req, res) {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
+
 }
 
 module.exports = ProduitController;
