@@ -31,6 +31,7 @@ const appPool = mysql.createPool({
     timezone: '+00:00',
     charset: 'utf8mb4'
 });
+
 // Schéma de la base de données
 const databaseSchema = {
     database: process.env.DB_NAME || config.db.database,
@@ -52,23 +53,23 @@ const databaseSchema = {
                 CREATE TABLE IF NOT EXISTS produits (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     nom VARCHAR(255) NOT NULL,
-                    marque VARCHAR(100),
-                    description TEXT,
-                    processeur VARCHAR(100),
-                    ram VARCHAR(50),
-                    stockage VARCHAR(50),
-                    gpu VARCHAR(100),
-                    batterie VARCHAR(100),
-                    ecran_tactile BOOLEAN DEFAULT FALSE,
-                    ecran_type VARCHAR(100),
-                    code_amoire VARCHAR(50),
-                    reference VARCHAR(100) UNIQUE,
-                    etat ENUM('neuf', 'occasion', 'reconditionne') DEFAULT 'neuf',
+                    marque VARCHAR(100) NULL DEFAULT NULL,
+                    description TEXT NULL DEFAULT NULL,
+                    processeur VARCHAR(100) NULL DEFAULT NULL,
+                    ram VARCHAR(50) NULL DEFAULT NULL,
+                    stockage VARCHAR(50) NULL DEFAULT NULL,
+                    gpu VARCHAR(100) NULL DEFAULT NULL,
+                    batterie VARCHAR(100) NULL DEFAULT NULL,
+                    ecran_tactile BOOLEAN NULL DEFAULT NULL,
+                    ecran_type VARCHAR(100) NULL DEFAULT NULL,
+                    code_amoire VARCHAR(50) NULL DEFAULT NULL,
+                    reference VARCHAR(100) UNIQUE NULL DEFAULT NULL,
+                    etat ENUM('neuf', 'occasion', 'reconditionne') NULL DEFAULT 'neuf',
                     prix_achat DECIMAL(10,2) NOT NULL,
                     prix_vente DECIMAL(10,2) NOT NULL,
                     quantite INT NOT NULL DEFAULT 0,
-                    categorie_id INT,
-                    image JSON,
+                    categorie_id INT NULL DEFAULT NULL,
+                    image JSON NULL DEFAULT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     FOREIGN KEY (categorie_id) REFERENCES categories(id)
