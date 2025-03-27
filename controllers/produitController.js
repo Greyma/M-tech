@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { generateBarcode, decodeBarcode } = require('./barcode');
 const FileService = require('../services/fileService');
 
 class ProduitController {
@@ -43,10 +44,17 @@ class ProduitController {
 
   static async getProduitById(req, res) {
     try {
-      const produitId = parseInt(req.params.id, 10);
-      if (isNaN(produitId)) {
-        return ProduitController.handleClientError(res, "ID invalide");
+
+      const prodId = parseInt(req.params.id, 10);
+
+      
+      const produitId = decodeBarcode(prodId.toString());
+
+
+      if (isNaN(produitId.id)) {
+          return ProduitController.handleClientError(res, "ID du produit invalide");
       }
+     
 
       const produits = await db.query(`
         SELECT 
@@ -60,7 +68,7 @@ class ProduitController {
         FROM produits p
         LEFT JOIN categories c ON p.categorie_id = c.id
         WHERE p.id = ?
-      `, [produitId]);
+      `, [produitId.id]);
 
       if (!produits?.length) {
         return ProduitController.handleNotFound(res, "Produit non trouvé");
@@ -99,9 +107,6 @@ class ProduitController {
             categorie_id: parseInt(req.body.categorie_id),
             image: req.files?.length ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null // Gère tous les fichiers envoyés
         };
-
-        // Log pour débogage
-        console.log('req.files:', req.files);
 
         if (!produitData.nom || 
             isNaN(produitData.prix_achat) || 
@@ -156,7 +161,12 @@ class ProduitController {
 
 static async updateProduit(req, res) {
   try {
-      const produitId = parseInt(req.params.id, 10);
+       const prodId = parseInt(req.params.id, 10);
+
+      
+      const prod = decodeBarcode(prodId.toString());
+
+      const produitId = prod.id;
       if (isNaN(produitId)) {
           return ProduitController.handleClientError(res, "ID du produit invalide");
       }
@@ -266,7 +276,13 @@ static async updateProduit(req, res) {
 
   static async deleteProduit(req, res) {
     try {
-        const produitId = parseInt(req.params.id, 10);
+        const prodId = parseInt(req.params.id, 10);
+
+      
+        const prod = decodeBarcode(prodId.toString());
+
+        const produitId = prod.id;
+        
         if (isNaN(produitId)) {
             return ProduitController.handleClientError(res, "ID du produit invalide");
         }
@@ -305,56 +321,9 @@ static async updateProduit(req, res) {
     }
 }
 
-static generateBarcode(id) {
-  // Vérifier que l'ID est un nombre valide
-  const idNum = parseInt(id, 10);
-  if (isNaN(idNum) || idNum < 0) {
-      throw new Error("L'ID doit être un nombre positif");
-  }
-
-  // Préfixe fixe (par exemple, "370" pour un code pays fictif, ajustez selon vos besoins)
-  const prefix = "370";
-
-  // Convertir l'ID en chaîne et le compléter avec des zéros à gauche pour avoir une longueur fixe
-  const idString = idNum.toString().padStart(9, "0"); // 9 chiffres pour l'ID
-
-  // Combiner le préfixe et l'ID (12 chiffres au total)
-  const baseNumber = prefix + idString;
-
-  // Calculer la clé de contrôle (check digit) pour EAN-13
-  const checkDigit = ProduitController.calculateEAN13CheckDigit(baseNumber);
-
-  // Retourner le code-barres complet (13 chiffres)
-  return baseNumber + checkDigit;
-}
-
-// Fonction pour calculer la clé de contrôle EAN-13
-static calculateEAN13CheckDigit(number) {
-  if (number.length !== 12) {
-      throw new Error("Le numéro de base doit avoir exactement 12 chiffres");
-  }
-
-  // Convertir en tableau de chiffres
-  const digits = number.split('').map(Number);
-
-  // Calculer la somme selon l'algorithme EAN-13 :
-  // - Poids 1 pour les positions impaires (0, 2, 4, ...)
-  // - Poids 3 pour les positions paires (1, 3, 5, ...)
-  let sum = 0;
-  for (let i = 0; i < 12; i++) {
-      sum += i % 2 === 0 ? digits[i] : digits[i] * 3;
-  }
-
-  // Calculer le check digit
-  const remainder = sum % 10;
-  const checkDigit = remainder === 0 ? 0 : 10 - remainder;
-
-  return checkDigit.toString();
-}
-
 static formatProduit(produit) {
 
-  const barcode = ProduitController.generateBarcode(produit.id);
+  const barcode = generateBarcode(produit.id);
 
   return {
       id: barcode,
