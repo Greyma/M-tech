@@ -77,184 +77,232 @@ class ProduitController {
 
   static async createProduit(req, res) {
     try {
-      const produitData = {
-        nom: req.body.nom,
-        marque: req.body.marque ?? null,
-        description: req.body.description ?? null,
-        processeur: req.body.processeur ?? null,
-        ram: req.body.ram ?? null,
-        stockage: req.body.stockage ?? null,
-        gpu: req.body.gpu ?? null,
-        batterie: req.body.batterie ?? null,
-        ecran_tactile: req.body.ecran_tactile === 'true',
-        ecran_type: req.body.ecran_type ?? null,
-        code_amoire: req.body.code_amoire ?? null,
-        reference: req.body.reference ?? null,
-        etat: req.body.etat || 'neuf',
-        prix_achat: parseFloat(req.body.prix_achat),
-        prix_vente: parseFloat(req.body.prix_vente),
-        quantite: parseInt(req.body.quantite) || 0,
-        categorie_id: parseInt(req.body.categorie_id),
-        image: req.files?.length ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null
-      };
+        const produitData = {
+            nom: req.body.nom,
+            marque: req.body.marque ?? null,
+            description: req.body.description ?? null,
+            processeur: req.body.processeur ?? null,
+            ram: req.body.ram ?? null,
+            stockage: req.body.stockage ?? null,
+            gpu: req.body.gpu ?? null,
+            batterie: req.body.batterie ?? null,
+            ecran_tactile: req.body.ecran_tactile === 'true',
+            ecran_type: req.body.ecran_type ?? null,
+            code_amoire: req.body.code_amoire ?? null,
+            reference: req.body.reference ?? null,
+            etat: req.body.etat || 'neuf',
+            prix_achat: parseFloat(req.body.prix_achat),
+            prix_vente: parseFloat(req.body.prix_vente),
+            quantite: parseInt(req.body.quantite) || 0,
+            categorie_id: parseInt(req.body.categorie_id),
+            image: req.files?.length ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null // Gère tous les fichiers envoyés
+        };
 
-      if (!produitData.nom || 
-          isNaN(produitData.prix_achat) || 
-          isNaN(produitData.prix_vente) || 
-          isNaN(produitData.categorie_id)) {
-        return ProduitController.handleClientError(res, "Champs obligatoires manquants ou invalides");
-      }
+        // Log pour débogage
+        console.log('req.files:', req.files);
 
-      const categoryCheck = await db.query(
-        'SELECT id FROM categories WHERE id = ?',
-        [produitData.categorie_id]
-      );
-      console.log('categoryCheck:', categoryCheck);
-
-      if (!categoryCheck?.length) {
-        return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
-      }
-
-      const result = await db.query(
-        `INSERT INTO produits (
-          nom, marque, description, processeur, ram, stockage, 
-          gpu, batterie, ecran_tactile, ecran_type, code_amoire, 
-          reference, etat, prix_achat, prix_vente, quantite, 
-          categorie_id, image
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        Object.values(produitData)
-      );
-
-      res.status(201).json({
-        success: true,
-        message: "Produit créé avec succès",
-        data: {
-          id: result.insertId,
-          ...produitData,
-          image: produitData.image ? JSON.parse(produitData.image) : null
+        if (!produitData.nom || 
+            isNaN(produitData.prix_achat) || 
+            isNaN(produitData.prix_vente) || 
+            isNaN(produitData.categorie_id)) {
+            return ProduitController.handleClientError(res, "Champs obligatoires manquants ou invalides");
         }
-      });
+
+        const categoryCheck = await db.query(
+            'SELECT id FROM categories WHERE id = ?',
+            [produitData.categorie_id]
+        );
+        console.log('categoryCheck:', categoryCheck);
+
+        if (!categoryCheck?.length) {
+            return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
+        }
+
+        const result = await db.query(
+            `INSERT INTO produits (
+                nom, marque, description, processeur, ram, stockage, 
+                gpu, batterie, ecran_tactile, ecran_type, code_amoire, 
+                reference, etat, prix_achat, prix_vente, quantite, 
+                categorie_id, image
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            Object.values(produitData)
+        );
+
+        res.status(201).json({
+            success: true,
+            message: "Produit créé avec succès",
+            data: {
+                id: result.insertId,
+                ...produitData,
+                image: produitData.image ? JSON.parse(produitData.image) : null
+            }
+        });
 
     } catch (error) {
-      console.error("Erreur création produit:", error);
-      if (error.message.includes("Duplicate entry") && error.message.includes("produits.reference")) {
-        return ProduitController.handleClientError(
-          res, 
-          `Un produit avec la référence '${req.body.reference}' existe déjà`, 
-          409
-        );
-      }
-      ProduitController.handleServerError(res, error, "création du produit");
+        console.error("Erreur création produit:", error);
+        if (error.message.includes("Duplicate entry") && error.message.includes("produits.reference")) {
+            return ProduitController.handleClientError(
+                res, 
+                `Un produit avec la référence '${req.body.reference}' existe déjà`, 
+                409
+            );
+        }
+        ProduitController.handleServerError(res, error, "création du produit");
     }
-  }
+}
 
-  static async updateProduit(req, res) {
-    try {
+
+static async updateProduit(req, res) {
+  try {
       const produitId = parseInt(req.params.id, 10);
       if (isNaN(produitId)) {
-        return ProduitController.handleClientError(res, "ID du produit invalide");
+          return ProduitController.handleClientError(res, "ID du produit invalide");
       }
 
+      // Récupérer le produit existant pour gérer les anciennes images
+      const existingProduits = await db.query(
+          `SELECT image FROM produits WHERE id = ?`,
+          [produitId]
+      );
+      if (!existingProduits?.length) {
+          return ProduitController.handleNotFound(res, "Produit non trouvé");
+      }
+
+      const existingProduit = existingProduits[0];
+
+      // Préparer les mises à jour
       const updates = {
-        nom: req.body.nom,
-        marque: req.body.marque ?? undefined,
-        description: req.body.description ?? undefined,
-        processeur: req.body.processeur ?? undefined,
-        ram: req.body.ram ?? undefined,
-        stockage: req.body.stockage ?? undefined,
-        gpu: req.body.gpu ?? undefined,
-        batterie: req.body.batterie ?? undefined,
-        ecran_tactile: req.body.ecran_tactile !== undefined ? req.body.ecran_tactile === 'true' : undefined,
-        ecran_type: req.body.ecran_type ?? undefined,
-        code_amoire: req.body.code_amoire ?? undefined,
-        reference: req.body.reference ?? undefined,
-        etat: req.body.etat,
-        prix_achat: req.body.prix_achat ? parseFloat(req.body.prix_achat) : undefined,
-        prix_vente: req.body.prix_vente ? parseFloat(req.body.prix_vente) : undefined,
-        quantite: req.body.quantite ? parseInt(req.body.quantite) : undefined,
-        categorie_id: req.body.categorie_id ? parseInt(req.body.categorie_id) : undefined
+          nom: req.body.nom,
+          marque: req.body.marque ?? undefined,
+          description: req.body.description ?? undefined,
+          processeur: req.body.processeur ?? undefined,
+          ram: req.body.ram ?? undefined,
+          stockage: req.body.stockage ?? undefined,
+          gpu: req.body.gpu ?? undefined,
+          batterie: req.body.batterie ?? undefined,
+          ecran_tactile: req.body.ecran_tactile !== undefined ? req.body.ecran_tactile === 'true' : undefined,
+          ecran_type: req.body.ecran_type ?? undefined,
+          code_amoire: req.body.code_amoire ?? undefined,
+          reference: req.body.reference ?? undefined,
+          etat: req.body.etat,
+          prix_achat: req.body.prix_achat ? parseFloat(req.body.prix_achat) : undefined,
+          prix_vente: req.body.prix_vente ? parseFloat(req.body.prix_vente) : undefined,
+          quantite: req.body.quantite ? parseInt(req.body.quantite) : undefined,
+          categorie_id: req.body.categorie_id ? parseInt(req.body.categorie_id) : undefined
       };
 
+      // Gestion des nouvelles images
       if (req.files?.length) {
-        updates.image = JSON.stringify(FileService.processUploadedFiles(req.files));
+          updates.image = JSON.stringify(FileService.processUploadedFiles(req.files));
+          // Optionnel : Supprimer les anciennes images
+          if (existingProduit.image) {
+              const oldImages = Array.isArray(existingProduit.image) ? existingProduit.image : [];
+              await Promise.all(
+                  oldImages.map(image => 
+                      FileService.deleteFile(image.path).catch(err => 
+                          console.error(`Erreur suppression ancienne image ${image.path}:`, err)
+                      )
+                  )
+              );
+          }
       }
 
       const cleanUpdates = Object.fromEntries(
-        Object.entries(updates).filter(([_, value]) => value !== undefined)
+          Object.entries(updates).filter(([_, value]) => value !== undefined)
       );
 
       if (!Object.keys(cleanUpdates).length) {
-        return ProduitController.handleClientError(res, "Aucune donnée valide à mettre à jour");
+          return ProduitController.handleClientError(res, "Aucune donnée valide à mettre à jour");
+      }
+
+      // Vérifier si la nouvelle catégorie existe (optionnel)
+      if (cleanUpdates.categorie_id) {
+          const categoryCheck = await db.query(
+              'SELECT id FROM categories WHERE id = ?',
+              [cleanUpdates.categorie_id]
+          );
+          if (!categoryCheck?.length) {
+              return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
+          }
       }
 
       const result = await db.query(
-        `UPDATE produits SET ? WHERE id = ?`,
-        [cleanUpdates, produitId]
+          `UPDATE produits SET ? WHERE id = ?`,
+          [cleanUpdates, produitId]
       );
 
       if (!result.affectedRows) {
-        return ProduitController.handleNotFound(res, "Produit non trouvé");
+          return ProduitController.handleNotFound(res, "Produit non trouvé");
       }
 
       const updatedProduit = await db.query(
-        `SELECT * FROM produits WHERE id = ?`,
-        [produitId]
+          `SELECT * FROM produits WHERE id = ?`,
+          [produitId]
       );
 
       res.json({
-        success: true,
-        message: "Produit mis à jour avec succès",
-        data: ProduitController.formatProduit(updatedProduit[0])
+          success: true,
+          message: "Produit mis à jour avec succès",
+          data: ProduitController.formatProduit(updatedProduit[0])
       });
 
-    } catch (error) {
+  } catch (error) {
       console.error("Erreur mise à jour produit:", error);
+      if (error.message.includes("Duplicate entry") && error.message.includes("produits.reference")) {
+          return ProduitController.handleClientError(
+              res, 
+              `Un produit avec la référence '${req.body.reference}' existe déjà`, 
+              409
+          );
+      }
       ProduitController.handleServerError(res, error, "mise à jour du produit");
-    }
   }
+}
 
   static async deleteProduit(req, res) {
     try {
-      const produitId = parseInt(req.params.id, 10);
-      if (isNaN(produitId)) {
-        return ProduitController.handleClientError(res, "ID du produit invalide");
-      }
+        const produitId = parseInt(req.params.id, 10);
+        if (isNaN(produitId)) {
+            return ProduitController.handleClientError(res, "ID du produit invalide");
+        }
 
-      const produits = await db.query(
-        `SELECT id, image FROM produits WHERE id = ?`,
-        [produitId]
-      );
-
-      if (!produits?.length) {
-        return ProduitController.handleNotFound(res, "Produit non trouvé");
-      }
-
-      const produit = produits[0];
-      if (produit.image) {
-        const images = JSON.parse(produit.image);
-        await Promise.all(
-          images.map(imagePath => 
-            FileService.deleteFile(imagePath).catch(err => 
-              console.error(`Erreur suppression image ${imagePath}:`, err)
-            )
-          )
+        const produits = await db.query(
+            `SELECT id, image FROM produits WHERE id = ?`,
+            [produitId]
         );
-      }
 
-      await db.query("DELETE FROM produits WHERE id = ?", [produitId]);
+        if (!produits?.length) {
+            return ProduitController.handleNotFound(res, "Produit non trouvé");
+        }
 
-      res.status(200).json({ 
-        success: true,
-        message: "Produit supprimé avec succès" 
-      });
+        const produit = produits[0];
+        if (produit.image) {
+            // Pas besoin de JSON.parse, produit.image est déjà un objet ou null
+            const images = Array.isArray(produit.image) ? produit.image : [];
+            await Promise.all(
+                images.map(image => 
+                    FileService.deleteFile(image.path).catch(err => 
+                        console.error(`Erreur suppression image ${image.path}:`, err)
+                    )
+                )
+            );
+        }
+
+        await db.query("DELETE FROM produits WHERE id = ?", [produitId]);
+
+        res.status(200).json({ 
+            success: true,
+            message: "Produit supprimé avec succès" 
+        });
     } catch (err) {
-      console.error("Erreur lors de la suppression du produit :", err);
-      ProduitController.handleServerError(res, err, "suppression");
+        console.error("Erreur lors de la suppression du produit :", err);
+        ProduitController.handleServerError(res, err, "suppression");
     }
-  }
+}
 
-  static formatProduit(produit) {
-    return {
+
+static formatProduit(produit) {
+  return {
       id: produit.id,
       nom: produit.nom || '',
       marque: produit.marque ?? null,
@@ -274,9 +322,9 @@ class ProduitController {
       quantite: Number(produit.quantite) || 0,
       categorie_id: produit.categorie_id ?? null,
       categorie_nom: produit.categorie_nom ?? null,
-      image: produit.image ? JSON.parse(produit.image) : null
-    };
-  }
+      image: produit.image ?? null 
+  };
+}
 
   static handleNotFound(res, message = "Ressource non trouvée") {
     return res.status(404).json({

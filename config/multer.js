@@ -28,6 +28,6 @@ const upload = multer({
 });
 
 module.exports = {
-    singleUpload: upload.single('image'),
-    arrayUpload: upload.array('images', 10)
+    // Supprimez singleUpload et arrayUpload si vous voulez utiliser uniquement any()
+    anyUpload: upload.any() // Accepte tous les fichiers, sans restriction sur le nom ou le nombre
 };
