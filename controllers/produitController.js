@@ -80,70 +80,71 @@ class ProduitController {
 
   static async createProduit(req, res) {
     try {
-      const produitData = {
-        nom: req.body.nom,
-        marque: req.body.marque ?? null,
-        description: req.body.description ?? null,
-        processeur: req.body.processeur ?? null,
-        ram: req.body.ram ?? null,
-        stockage: req.body.stockage ?? null,
-        gpu: req.body.gpu ?? null,
-        batterie: req.body.batterie ?? null,
-        ecran_tactile: req.body.ecran_tactile === 'true',
-        ecran_type: req.body.ecran_type ?? null,
-        code_amoire: req.body.code_amoire ?? null,
-        reference: req.body.reference ?? null,
-        etat: req.body.etat || 'neuf',
-        prix_achat: parseFloat(req.body.prix_achat),
-        prix_vente: parseFloat(req.body.prix_vente),
-        quantite: parseInt(req.body.quantite) || 0,
-        categorie_id: parseInt(req.body.categorie_id),
-        image: req.files?.length ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null
-      };
+        const produitData = {
+            nom: req.body.nom,
+            marque: req.body.marque ?? null,
+            description: req.body.description ?? null,
+            processeur: req.body.processeur ?? null,
+            ram: req.body.ram ?? null,
+            stockage: req.body.stockage ?? null,
+            gpu: req.body.gpu ?? null,
+            batterie: req.body.batterie ?? null,
+            ecran_tactile: req.body.ecran_tactile === 'true',
+            ecran_type: req.body.ecran_type ?? null,
+            code_amoire: req.body.code_amoire ?? null,
+            reference: req.body.reference ?? null,
+            etat: req.body.etat || 'neuf',
+            prix_achat: parseFloat(req.body.prix_achat),
+            prix_vente: parseFloat(req.body.prix_vente),
+            quantite: parseInt(req.body.quantite) || 0,
+            categorie_id: parseInt(req.body.categorie_id),
+            image: req.files?.length ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null
+        };
 
-      // Validation des champs obligatoires
-      if (!produitData.nom || 
-          isNaN(produitData.prix_achat) || 
-          isNaN(produitData.prix_vente) || 
-          isNaN(produitData.categorie_id)) {
-        return ProduitController.handleClientError(res, "Champs obligatoires manquants ou invalides");
-      }
-
-      // Vérifier si la catégorie existe
-      const [categoryCheck] = await db.query(
-        'SELECT id FROM categories WHERE id = ?',
-        [produitData.categorie_id]
-      );
-
-      if (!categoryCheck?.length) {
-        return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
-      }
-
-      const [result] = await db.query(
-        `INSERT INTO produits (
-          nom, marque, description, processeur, ram, stockage, 
-          gpu, batterie, ecran_tactile, ecran_type, code_amoire, 
-          reference, etat, prix_achat, prix_vente, quantite, 
-          categorie_id, image
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        Object.values(produitData)
-      );
-
-      res.status(201).json({
-        success: true,
-        message: "Produit créé avec succès",
-        data: {
-          id: result.insertId,
-          ...produitData,
-          image: produitData.image ? JSON.parse(produitData.image) : null
+        // Validation des champs obligatoires
+        if (!produitData.nom || 
+            isNaN(produitData.prix_achat) || 
+            isNaN(produitData.prix_vente) || 
+            isNaN(produitData.categorie_id)) {
+            return ProduitController.handleClientError(res, "Champs obligatoires manquants ou invalides");
         }
-      });
+
+        // Vérifier si la catégorie existe
+        const categoryCheck = await db.query(
+            'SELECT id FROM categories WHERE id = ?',
+            [produitData.categorie_id]
+        );
+        console.log('categoryCheck:', categoryCheck); // Ajoutez ce log
+
+        if (!categoryCheck?.length) {
+            return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
+        }
+
+        const result = await db.query(
+          `INSERT INTO produits (
+              nom, marque, description, processeur, ram, stockage, 
+              gpu, batterie, ecran_tactile, ecran_type, code_amoire, 
+              reference, etat, prix_achat, prix_vente, quantite, 
+              categorie_id, image
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          Object.values(produitData)
+        );
+
+        res.status(201).json({
+            success: true,
+            message: "Produit créé avec succès",
+            data: {
+                id: result.insertId,
+                ...produitData,
+                image: produitData.image ? JSON.parse(produitData.image) : null
+            }
+        });
 
     } catch (error) {
-      console.error("Erreur création produit:", error);
-      ProduitController.handleServerError(res, error, "création du produit");
+        console.error("Erreur création produit:", error);
+        ProduitController.handleServerError(res, error, "création du produit");
     }
-  }
+}
 
   static async updateProduit(req, res) {
     try {
