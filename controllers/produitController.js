@@ -5,8 +5,9 @@ class ProduitController {
   static async getAllProduits(req, res) {
     try {
       await db.testConnection();
-      
-      const [produits] = await db.query(`
+
+      // Pas de déstructuration, car db.query retourne directement results
+      const produits = await db.query(`
         SELECT 
           p.id, p.nom, p.marque, p.description, 
           p.processeur, p.ram, p.stockage, p.gpu,
@@ -20,14 +21,10 @@ class ProduitController {
       `);
 
       if (!produits?.length) {
-        return res.status(404).json({ 
-          success: false,
-          message: "Aucun produit trouvé",
-          data: []
-        });
+        return ProduitController.handleNotFound(res, "Aucun produit trouvé");
       }
 
-      const formattedProduits = produits.map(produit => this.formatProduit(produit));
+      const formattedProduits = produits.map(produit => ProduitController.formatProduit(produit));
 
       res.status(200).json({ 
         success: true,
@@ -38,7 +35,7 @@ class ProduitController {
 
     } catch (err) {
       console.error('Erreur dans getAllProduits:', err);
-      this.handleServerError(res, err, "récupération des produits");
+      ProduitController.handleServerError(res, err, "récupération des produits");
     }
   }
 
@@ -46,10 +43,10 @@ class ProduitController {
     try {
       const produitId = parseInt(req.params.id, 10);
       if (isNaN(produitId)) {
-        return this.handleClientError(res, "ID invalide");
+        return ProduitController.handleClientError(res, "ID invalide");
       }
 
-      const [produits] = await db.query(`
+      const produits = await db.query(`
         SELECT 
           p.id, p.nom, p.marque, p.description, 
           p.processeur, p.ram, p.stockage, p.gpu,
@@ -64,93 +61,98 @@ class ProduitController {
       `, [produitId]);
 
       if (!produits?.length) {
-        return this.handleNotFound(res, "Produit non trouvé");
+        return ProduitController.handleNotFound(res, "Produit non trouvé");
       }
 
       res.status(200).json({
         success: true,
         message: "Produit récupéré avec succès",
-        data: this.formatProduit(produits[0])
+        data: ProduitController.formatProduit(produits[0])
       });
     } catch (err) {
       console.error("Erreur lors de la récupération du produit :", err);
-      this.handleServerError(res, err);
+      ProduitController.handleServerError(res, err);
     }
   }
 
   static async createProduit(req, res) {
     try {
-        const produitData = {
-            nom: req.body.nom,
-            marque: req.body.marque ?? null,
-            description: req.body.description ?? null,
-            processeur: req.body.processeur ?? null,
-            ram: req.body.ram ?? null,
-            stockage: req.body.stockage ?? null,
-            gpu: req.body.gpu ?? null,
-            batterie: req.body.batterie ?? null,
-            ecran_tactile: req.body.ecran_tactile === 'true',
-            ecran_type: req.body.ecran_type ?? null,
-            code_amoire: req.body.code_amoire ?? null,
-            reference: req.body.reference ?? null,
-            etat: req.body.etat || 'neuf',
-            prix_achat: parseFloat(req.body.prix_achat),
-            prix_vente: parseFloat(req.body.prix_vente),
-            quantite: parseInt(req.body.quantite) || 0,
-            categorie_id: parseInt(req.body.categorie_id),
-            image: req.files?.length ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null
-        };
+      const produitData = {
+        nom: req.body.nom,
+        marque: req.body.marque ?? null,
+        description: req.body.description ?? null,
+        processeur: req.body.processeur ?? null,
+        ram: req.body.ram ?? null,
+        stockage: req.body.stockage ?? null,
+        gpu: req.body.gpu ?? null,
+        batterie: req.body.batterie ?? null,
+        ecran_tactile: req.body.ecran_tactile === 'true',
+        ecran_type: req.body.ecran_type ?? null,
+        code_amoire: req.body.code_amoire ?? null,
+        reference: req.body.reference ?? null,
+        etat: req.body.etat || 'neuf',
+        prix_achat: parseFloat(req.body.prix_achat),
+        prix_vente: parseFloat(req.body.prix_vente),
+        quantite: parseInt(req.body.quantite) || 0,
+        categorie_id: parseInt(req.body.categorie_id),
+        image: req.files?.length ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null
+      };
 
-        // Validation des champs obligatoires
-        if (!produitData.nom || 
-            isNaN(produitData.prix_achat) || 
-            isNaN(produitData.prix_vente) || 
-            isNaN(produitData.categorie_id)) {
-            return ProduitController.handleClientError(res, "Champs obligatoires manquants ou invalides");
+      if (!produitData.nom || 
+          isNaN(produitData.prix_achat) || 
+          isNaN(produitData.prix_vente) || 
+          isNaN(produitData.categorie_id)) {
+        return ProduitController.handleClientError(res, "Champs obligatoires manquants ou invalides");
+      }
+
+      const categoryCheck = await db.query(
+        'SELECT id FROM categories WHERE id = ?',
+        [produitData.categorie_id]
+      );
+      console.log('categoryCheck:', categoryCheck);
+
+      if (!categoryCheck?.length) {
+        return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
+      }
+
+      const result = await db.query(
+        `INSERT INTO produits (
+          nom, marque, description, processeur, ram, stockage, 
+          gpu, batterie, ecran_tactile, ecran_type, code_amoire, 
+          reference, etat, prix_achat, prix_vente, quantite, 
+          categorie_id, image
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        Object.values(produitData)
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Produit créé avec succès",
+        data: {
+          id: result.insertId,
+          ...produitData,
+          image: produitData.image ? JSON.parse(produitData.image) : null
         }
-
-        // Vérifier si la catégorie existe
-        const categoryCheck = await db.query(
-            'SELECT id FROM categories WHERE id = ?',
-            [produitData.categorie_id]
-        );
-        console.log('categoryCheck:', categoryCheck); // Ajoutez ce log
-
-        if (!categoryCheck?.length) {
-            return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
-        }
-
-        const result = await db.query(
-          `INSERT INTO produits (
-              nom, marque, description, processeur, ram, stockage, 
-              gpu, batterie, ecran_tactile, ecran_type, code_amoire, 
-              reference, etat, prix_achat, prix_vente, quantite, 
-              categorie_id, image
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          Object.values(produitData)
-        );
-
-        res.status(201).json({
-            success: true,
-            message: "Produit créé avec succès",
-            data: {
-                id: result.insertId,
-                ...produitData,
-                image: produitData.image ? JSON.parse(produitData.image) : null
-            }
-        });
+      });
 
     } catch (error) {
-        console.error("Erreur création produit:", error);
-        ProduitController.handleServerError(res, error, "création du produit");
+      console.error("Erreur création produit:", error);
+      if (error.message.includes("Duplicate entry") && error.message.includes("produits.reference")) {
+        return ProduitController.handleClientError(
+          res, 
+          `Un produit avec la référence '${req.body.reference}' existe déjà`, 
+          409
+        );
+      }
+      ProduitController.handleServerError(res, error, "création du produit");
     }
-}
+  }
 
   static async updateProduit(req, res) {
     try {
-      const produitId = parseInt(req.params.id);
+      const produitId = parseInt(req.params.id, 10);
       if (isNaN(produitId)) {
-        return this.handleClientError(res, "ID du produit invalide");
+        return ProduitController.handleClientError(res, "ID du produit invalide");
       }
 
       const updates = {
@@ -182,19 +184,19 @@ class ProduitController {
       );
 
       if (!Object.keys(cleanUpdates).length) {
-        return this.handleClientError(res, "Aucune donnée valide à mettre à jour");
+        return ProduitController.handleClientError(res, "Aucune donnée valide à mettre à jour");
       }
 
-      const [results] = await db.query(
+      const result = await db.query(
         `UPDATE produits SET ? WHERE id = ?`,
         [cleanUpdates, produitId]
       );
 
-      if (!results.affectedRows) {
-        return this.handleNotFound(res, "Produit non trouvé");
+      if (!result.affectedRows) {
+        return ProduitController.handleNotFound(res, "Produit non trouvé");
       }
 
-      const [updatedProduit] = await db.query(
+      const updatedProduit = await db.query(
         `SELECT * FROM produits WHERE id = ?`,
         [produitId]
       );
@@ -202,29 +204,29 @@ class ProduitController {
       res.json({
         success: true,
         message: "Produit mis à jour avec succès",
-        data: this.formatProduit(updatedProduit[0])
+        data: ProduitController.formatProduit(updatedProduit[0])
       });
 
     } catch (error) {
       console.error("Erreur mise à jour produit:", error);
-      this.handleServerError(res, error, "mise à jour du produit");
+      ProduitController.handleServerError(res, error, "mise à jour du produit");
     }
   }
 
   static async deleteProduit(req, res) {
     try {
-      const produitId = parseInt(req.params.id);
+      const produitId = parseInt(req.params.id, 10);
       if (isNaN(produitId)) {
-        return this.handleClientError(res, "ID du produit invalide");
+        return ProduitController.handleClientError(res, "ID du produit invalide");
       }
 
-      const [produits] = await db.query(
+      const produits = await db.query(
         `SELECT id, image FROM produits WHERE id = ?`,
         [produitId]
       );
 
       if (!produits?.length) {
-        return this.handleNotFound(res, "Produit non trouvé");
+        return ProduitController.handleNotFound(res, "Produit non trouvé");
       }
 
       const produit = produits[0];
@@ -247,7 +249,7 @@ class ProduitController {
       });
     } catch (err) {
       console.error("Erreur lors de la suppression du produit :", err);
-      this.handleServerError(res, err, "suppression");
+      ProduitController.handleServerError(res, err, "suppression");
     }
   }
 
@@ -279,7 +281,8 @@ class ProduitController {
   static handleNotFound(res, message = "Ressource non trouvée") {
     return res.status(404).json({
       success: false,
-      message
+      message,
+      data: []
     });
   }
 
@@ -297,7 +300,6 @@ class ProduitController {
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
-
 }
 
 module.exports = ProduitController;
