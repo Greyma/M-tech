@@ -23,8 +23,10 @@ class ProduitController {
       if (!produits?.length) {
         return ProduitController.handleNotFound(res, "Aucun produit trouvé");
       }
+      
 
       const formattedProduits = produits.map(produit => ProduitController.formatProduit(produit));
+
 
       res.status(200).json({ 
         success: true,
@@ -63,7 +65,7 @@ class ProduitController {
       if (!produits?.length) {
         return ProduitController.handleNotFound(res, "Produit non trouvé");
       }
-
+      
       res.status(200).json({
         success: true,
         message: "Produit récupéré avec succès",
@@ -303,10 +305,59 @@ static async updateProduit(req, res) {
     }
 }
 
+static generateBarcode(id) {
+  // Vérifier que l'ID est un nombre valide
+  const idNum = parseInt(id, 10);
+  if (isNaN(idNum) || idNum < 0) {
+      throw new Error("L'ID doit être un nombre positif");
+  }
+
+  // Préfixe fixe (par exemple, "370" pour un code pays fictif, ajustez selon vos besoins)
+  const prefix = "370";
+
+  // Convertir l'ID en chaîne et le compléter avec des zéros à gauche pour avoir une longueur fixe
+  const idString = idNum.toString().padStart(9, "0"); // 9 chiffres pour l'ID
+
+  // Combiner le préfixe et l'ID (12 chiffres au total)
+  const baseNumber = prefix + idString;
+
+  // Calculer la clé de contrôle (check digit) pour EAN-13
+  const checkDigit = ProduitController.calculateEAN13CheckDigit(baseNumber);
+
+  // Retourner le code-barres complet (13 chiffres)
+  return baseNumber + checkDigit;
+}
+
+// Fonction pour calculer la clé de contrôle EAN-13
+static calculateEAN13CheckDigit(number) {
+  if (number.length !== 12) {
+      throw new Error("Le numéro de base doit avoir exactement 12 chiffres");
+  }
+
+  // Convertir en tableau de chiffres
+  const digits = number.split('').map(Number);
+
+  // Calculer la somme selon l'algorithme EAN-13 :
+  // - Poids 1 pour les positions impaires (0, 2, 4, ...)
+  // - Poids 3 pour les positions paires (1, 3, 5, ...)
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+      sum += i % 2 === 0 ? digits[i] : digits[i] * 3;
+  }
+
+  // Calculer le check digit
+  const remainder = sum % 10;
+  const checkDigit = remainder === 0 ? 0 : 10 - remainder;
+
+  return checkDigit.toString();
+}
 
 static formatProduit(produit) {
+
+  const barcode = ProduitController.generateBarcode(produit.id);
+
   return {
-      id: produit.id,
+      id: barcode,
       nom: produit.nom || '',
       marque: produit.marque ?? null,
       description: produit.description ?? null,
@@ -325,7 +376,7 @@ static formatProduit(produit) {
       quantite: Number(produit.quantite) || 0,
       categorie_id: produit.categorie_id ?? null,
       categorie_nom: produit.categorie_nom ?? null,
-      image: produit.image ?? null 
+      image: produit.image ?? [{ filename : "default" , path : "uploads/default.jpg"}]
   };
 }
 

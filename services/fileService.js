@@ -7,6 +7,13 @@ class FileService {
         }));
     }
 
+    static processDefaultFiles(files) {
+        return [{
+            path: files.path,
+            filename: files.filename
+        }];
+    }
+
     static deleteFile(filePath) {
         const fs = require('fs').promises;
         return fs.unlink(filePath);
