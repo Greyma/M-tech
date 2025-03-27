@@ -27,7 +27,7 @@ const upload = multer({
     fileFilter: fileFilter
 });
 
+
 module.exports = {
-    // Supprimez singleUpload et arrayUpload si vous voulez utiliser uniquement any()
-    anyUpload: upload.any() // Accepte tous les fichiers, sans restriction sur le nom ou le nombre
+     anyUpload: upload.any() // Accepte tous les fichiers, sans restriction sur le nom ou le nombre
 };

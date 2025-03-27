@@ -159,7 +159,6 @@ static async updateProduit(req, res) {
           return ProduitController.handleClientError(res, "ID du produit invalide");
       }
 
-      // Récupérer le produit existant pour gérer les anciennes images
       const existingProduits = await db.query(
           `SELECT image FROM produits WHERE id = ?`,
           [produitId]
@@ -170,7 +169,6 @@ static async updateProduit(req, res) {
 
       const existingProduit = existingProduits[0];
 
-      // Préparer les mises à jour
       const updates = {
           nom: req.body.nom,
           marque: req.body.marque ?? undefined,
@@ -191,10 +189,8 @@ static async updateProduit(req, res) {
           categorie_id: req.body.categorie_id ? parseInt(req.body.categorie_id) : undefined
       };
 
-      // Gestion des nouvelles images
       if (req.files?.length) {
           updates.image = JSON.stringify(FileService.processUploadedFiles(req.files));
-          // Optionnel : Supprimer les anciennes images
           if (existingProduit.image) {
               const oldImages = Array.isArray(existingProduit.image) ? existingProduit.image : [];
               await Promise.all(
@@ -211,11 +207,11 @@ static async updateProduit(req, res) {
           Object.entries(updates).filter(([_, value]) => value !== undefined)
       );
 
+    
       if (!Object.keys(cleanUpdates).length) {
           return ProduitController.handleClientError(res, "Aucune donnée valide à mettre à jour");
       }
 
-      // Vérifier si la nouvelle catégorie existe (optionnel)
       if (cleanUpdates.categorie_id) {
           const categoryCheck = await db.query(
               'SELECT id FROM categories WHERE id = ?',
@@ -226,9 +222,16 @@ static async updateProduit(req, res) {
           }
       }
 
+
+      // Construire la clause SET dynamiquement
+      const setClause = Object.keys(cleanUpdates)
+      .map(key => `${key} = ?`)
+      .join(', ');
+      const values = Object.values(cleanUpdates);
+
       const result = await db.query(
-          `UPDATE produits SET ? WHERE id = ?`,
-          [cleanUpdates, produitId]
+          `UPDATE produits SET ${setClause} WHERE id = ?`,
+          [...values, produitId]
       );
 
       if (!result.affectedRows) {

@@ -6,7 +6,7 @@ const { anyUpload } = require('../config/multer');
 router.get('/', ProduitController.getAllProduits);
 router.get('/:id', ProduitController.getProduitById);
 router.post('/', anyUpload, ProduitController.createProduit);
-router.put('/:id', ProduitController.updateProduit);
+router.put('/:id',anyUpload, ProduitController.updateProduit);
 router.delete('/:id', ProduitController.deleteProduit);
 
 module.exports = router;
