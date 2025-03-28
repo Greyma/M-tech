@@ -31,6 +31,7 @@ app.use('/api/auth', authRoutes);
 // ... autres routes ...
 
 app.use('/api/produits', require('./routes/produitRoutes'));
+app.use('/api/clients', require('./routes/clientRoutes'));
 app.use('/api/categories', require('./routes/categorieRoutes'));
 app.use('/api/factures', require('./routes/factureRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));

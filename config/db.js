@@ -77,13 +77,29 @@ const databaseSchema = {
             `
         },
         {
+            name: 'clients',
+            schema: `
+                CREATE TABLE IF NOT EXISTS clients (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    nom VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) NULL DEFAULT NULL,
+                    telephone VARCHAR(20) NULL DEFAULT NULL,
+                    wilaya VARCHAR(100) NULL DEFAULT NULL,
+                    recommendation TEXT NULL DEFAULT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `
+        },
+        {
             name: 'factures',
             schema: `
                 CREATE TABLE IF NOT EXISTS factures (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    nom_client VARCHAR(255) NOT NULL,
+                    client_id INT NOT NULL,
                     prix_total DECIMAL(10,2) NOT NULL,
-                    date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (client_id) REFERENCES clients(id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             `
         },
@@ -95,6 +111,8 @@ const databaseSchema = {
                     facture_id INT NOT NULL,
                     produit_id INT NOT NULL,
                     quantite INT NOT NULL,
+                    code_garantie VARCHAR(50) NULL DEFAULT NULL,
+                    duree_garantie VARCHAR(50) NULL DEFAULT NULL,
                     FOREIGN KEY (facture_id) REFERENCES factures(id) ON DELETE CASCADE,
                     FOREIGN KEY (produit_id) REFERENCES produits(id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
