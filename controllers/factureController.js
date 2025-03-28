@@ -8,7 +8,7 @@ class FactureController {
             const [factures] = await db.query(`
                 SELECT 
                     f.id AS facture_id,
-                    f.nom_client,
+                    c.nom AS nom_client,
                     f.prix_total,
                     f.date_creation,
                     p.id AS produit_id,
@@ -17,6 +17,7 @@ class FactureController {
                     p.prix_achat AS produit_prix_achat,
                     af.quantite AS produit_quantite
                 FROM factures f
+                LEFT JOIN clients c ON f.client_id = c.id
                 LEFT JOIN articles_facture af ON f.id = af.facture_id
                 LEFT JOIN produits p ON af.produit_id = p.id
                 ORDER BY f.date_creation DESC
@@ -60,21 +61,33 @@ class FactureController {
     }
 
     static async createFacture(req, res) {
-        const { nom_client, produits } = req.body;
+        const { client_id, produits } = req.body;
         let conn;
 
         // Validation des données
-        if (!nom_client || typeof nom_client !== 'string' || nom_client.trim() === '' ||
-            !Array.isArray(produits) || produits.length === 0) {
+        if (!client_id || isNaN(client_id) || !Array.isArray(produits) || produits.length === 0) {
             return FactureController.handleClientError(
                 res, 
-                "Le nom du client (chaîne non vide) et une liste de produits non vide sont requis"
+                "Un client valide (ID numérique) et une liste de produits non vide sont requis"
             );
         }
 
         try {
             conn = await db.getConnection();
             await conn.beginTransaction();
+
+            // Vérification si le client existe
+            const [clientResult] = await conn.query(
+                "SELECT id, nom FROM clients WHERE id = ?", 
+                [client_id]
+            );
+
+            if (!clientResult.length) {
+                await conn.rollback();
+                return FactureController.handleClientError(res, "Client introuvable");
+            }
+
+            const clientNom = clientResult[0].nom;
 
             // Vérification et calcul du prix total
             const { prix_total, produitsVerifies, errors } = 
@@ -86,7 +99,7 @@ class FactureController {
             }
 
             // Création de la facture
-            const factureId = await FactureController.creerFacture(conn, nom_client.trim(), prix_total);
+            const factureId = await FactureController.creerFacture(conn, client_id, prix_total);
             
             // Ajout des articles et mise à jour du stock
             await FactureController.ajouterArticlesFacture(conn, factureId, produitsVerifies);
@@ -99,7 +112,7 @@ class FactureController {
                 message: "Facture créée avec succès", 
                 data: { 
                     id: factureId, 
-                    nom_client: nom_client.trim(), 
+                    nom_client: clientNom, 
                     prix_total: Number(prix_total).toFixed(2), 
                     produits: produitsVerifies,
                     date_creation: new Date()
@@ -154,7 +167,14 @@ class FactureController {
         }
     }
 
-    // Méthodes utilitaires
+    static async creerFacture(conn, client_id, prix_total) {
+        const [result] = await conn.query(
+            "INSERT INTO factures (client_id, prix_total) VALUES (?, ?)", 
+            [client_id, prix_total]
+        );
+        return result.insertId;
+    }
+
     static async verifierProduits(conn, produits) {
         let prix_total = 0;
         const produitsVerifies = [];
@@ -181,113 +201,116 @@ class FactureController {
 
             const stock = stockResults[0];
             if (stock.quantite < quantite) {
-                errors.push(`Stock insuffisant pour ${stock.nom} (dispo: ${stock.quantite})`);
+                errors.push(`Stock insuffisant pour le produit ${stock.nom}`);
                 continue;
             }
 
-            produitsVerifies.push({ 
-                produit_id, 
-                quantite, 
-                prix_vente: Number(stock.prix_vente), 
-                nom: stock.nom 
-            });
             prix_total += stock.prix_vente * quantite;
+            produitsVerifies.push({ produit_id, quantite, prix_vente: stock.prix_vente });
         }
 
         return { prix_total, produitsVerifies, errors };
     }
-
-    static async creerFacture(conn, nom_client, prix_total) {
-        const [factureResult] = await conn.query(
-            "INSERT INTO factures (nom_client, prix_total, date_creation) VALUES (?, ?, NOW())", 
-            [nom_client, prix_total]
-        );
-        return factureResult.insertId;
-    }
-
+    
     static async ajouterArticlesFacture(conn, factureId, produits) {
+        if (!produits.length) return;  // Évite une requête vide
+
         const articlesData = produits.map(p => [factureId, p.produit_id, p.quantite]);
         await conn.query(
-            "INSERT INTO articles_facture (facture_id, produit_id, quantite) VALUES ?", 
+            `INSERT INTO articles_facture (facture_id, produit_id, quantite) VALUES ? 
+            ON DUPLICATE KEY UPDATE quantite = quantite + VALUES(quantite)`, 
             [articlesData]
         );
     }
 
     static async mettreAJourStocks(conn, produits) {
-        await Promise.all(produits.map(produit => 
-            conn.query(
+        await Promise.all(produits.map(async produit => {
+            // Vérifier le stock avant modification
+            const [[{ quantite }] = []] = await conn.query(
+                "SELECT quantite FROM produits WHERE id = ?", [produit.produit_id]
+            );
+
+            if (quantite < produit.quantite) {
+                throw new Error(`Stock insuffisant pour le produit ID: ${produit.produit_id}`);
+            }
+
+            // Mise à jour du stock
+            await conn.query(
                 "UPDATE produits SET quantite = quantite - ? WHERE id = ?", 
                 [produit.quantite, produit.produit_id]
-            )
-        ));
+            );
+        }));
     }
 
     static async recupererArticlesFacture(conn, factureId) {
+        if (!factureId) throw new Error("Facture ID invalide");
+
         const [articles] = await conn.query(
-            'SELECT produit_id, quantite FROM articles_facture WHERE facture_id = ?',
+            "SELECT produit_id, quantite FROM articles_facture WHERE facture_id = ?",
             [factureId]
         );
         return articles;
     }
 
     static async restaurerStocks(conn, articles) {
-        await Promise.all(articles.map(({ produit_id, quantite }) => 
-            conn.query(
-                'UPDATE produits SET quantite = quantite + ? WHERE id = ?',
+        await Promise.all(articles.map(async ({ produit_id, quantite }) => {
+            const [[exists] = []] = await conn.query(
+                "SELECT id FROM produits WHERE id = ?", [produit_id]
+            );
+
+            if (!exists) {
+                throw new Error(`Produit ID ${produit_id} introuvable lors de la restauration du stock`);
+            }
+
+            await conn.query(
+                "UPDATE produits SET quantite = quantite + ? WHERE id = ?",
                 [quantite, produit_id]
-            )
-        ));
+            );
+        }));
     }
 
     static async supprimerArticlesFacture(conn, factureId) {
         await conn.query(
-            'DELETE FROM articles_facture WHERE facture_id = ?',
+            "DELETE FROM articles_facture WHERE facture_id = ?",
             [factureId]
         );
     }
 
     static async supprimerFacture(conn, factureId) {
-        const [result] = await conn.query(
-            'DELETE FROM factures WHERE id = ?',
-            [factureId]
+        // Vérifier si la facture existe
+        const [[facture] = []] = await conn.query(
+            "SELECT id FROM factures WHERE id = ?", [factureId]
         );
+        if (!facture) {
+            throw new Error("Facture non trouvée");
+        }
+
+        // Supprimer d'abord les articles liés
+        await FactureController.supprimerArticlesFacture(conn, factureId);
+
+        // Supprimer ensuite la facture
+        const [result] = await conn.query(
+            "DELETE FROM factures WHERE id = ?", [factureId]
+        );
+
         if (!result.affectedRows) {
-            throw new Error("Facture non trouvée lors de la suppression");
+            throw new Error("Erreur lors de la suppression de la facture");
         }
     }
 
     static formatProduitFacture(row) {
+        const quantite = Number(row.produit_quantite) || 0;
+        const prixVente = Number(row.produit_prix_vente) || 0;
+        const prixAchat = Number(row.produit_prix_achat) || 0;
+
         return {
             id: row.produit_id,
             nom: row.produit_nom,
-            quantite: Number(row.produit_quantite),
-            prix_vente: Number(row.produit_prix_vente).toFixed(2),
-            prix_achat: Number(row.produit_prix_achat).toFixed(2),
-            prix_total: Number(row.produit_prix_vente * row.produit_quantite).toFixed(2)
+            quantite,
+            prix_vente: prixVente.toFixed(2),
+            prix_achat: prixAchat.toFixed(2),
+            prix_total: (prixVente * quantite).toFixed(2)
         };
     }
-
-    static handleClientError(res, message, statusCode = 400) {
-        return res.status(statusCode).json({
-            success: false,
-            message
-        });
-    }
-
-    static handleNotFound(res, message = "Ressource non trouvée") {
-        return res.status(404).json({
-            success: false,
-            message
-        });
-    }
-
-    static handleServerError(res, error, context = "") {
-        return res.status(500).json({ 
-            success: false,
-            message: `Erreur serveur${context ? ` lors de la ${context}` : ''}`,
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
 }
-
 module.exports = FactureController;
