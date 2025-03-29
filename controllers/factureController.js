@@ -59,75 +59,7 @@ class FactureController {
             FactureController.handleServerError(res, err, "récupération des factures");
         }
     }
-
-    static async createFacture(req, res) {
-        const { client_id, produits } = req.body;
-        let conn;
-
-        // Validation des données
-        if (!client_id || isNaN(client_id) || !Array.isArray(produits) || produits.length === 0) {
-            return FactureController.handleClientError(
-                res, 
-                "Un client valide (ID numérique) et une liste de produits non vide sont requis"
-            );
-        }
-
-        try {
-            conn = await db.getConnection();
-            await conn.beginTransaction();
-
-            // Vérification si le client existe
-            const [clientResult] = await conn.query(
-                "SELECT id, nom FROM clients WHERE id = ?", 
-                [client_id]
-            );
-
-            if (!clientResult.length) {
-                await conn.rollback();
-                return FactureController.handleClientError(res, "Client introuvable");
-            }
-
-            const clientNom = clientResult[0].nom;
-
-            // Vérification et calcul du prix total
-            const { prix_total, produitsVerifies, errors } = 
-                await FactureController.verifierProduits(conn, produits);
-
-            if (errors.length > 0) {
-                await conn.rollback();
-                return FactureController.handleClientError(res, errors.join(' '));
-            }
-
-            // Création de la facture
-            const factureId = await FactureController.creerFacture(conn, client_id, prix_total);
-            
-            // Ajout des articles et mise à jour du stock
-            await FactureController.ajouterArticlesFacture(conn, factureId, produitsVerifies);
-            await FactureController.mettreAJourStocks(conn, produitsVerifies);
-
-            await conn.commit();
-            
-            res.status(201).json({ 
-                success: true,
-                message: "Facture créée avec succès", 
-                data: { 
-                    id: factureId, 
-                    nom_client: clientNom, 
-                    prix_total: Number(prix_total).toFixed(2), 
-                    produits: produitsVerifies,
-                    date_creation: new Date()
-                } 
-            });
-
-        } catch (error) {
-            if (conn) await conn.rollback();
-            console.error("Erreur lors de la création de la facture:", error);
-            FactureController.handleServerError(res, error, "création de la facture");
-        } finally {
-            if (conn) conn.release();
-        }
-    }
-
+    
     static async deleteFacture(req, res) {
         const factureId = parseInt(req.params.id, 10);
         let conn;
@@ -175,50 +107,129 @@ class FactureController {
         return result.insertId;
     }
 
+
+    static async createFacture(req, res) {
+        const { client_id, produits } = req.body; // Retirer 'prix' car il est maintenant dans chaque produit
+        let conn;
+    
+        if (!client_id || isNaN(client_id) || !Array.isArray(produits) || produits.length === 0) {
+            return FactureController.handleClientError(
+                res, 
+                "Un client valide (ID numérique) et une liste de produits non vide sont requis"
+            );
+        }
+    
+        try {
+            conn = await db.getConnection();
+            await conn.beginTransaction();
+    
+            // Vérification si le client existe
+            const [clientResult] = await conn.query(
+                "SELECT id, nom FROM clients WHERE id = ?", 
+                [client_id]
+            );
+    
+            if (!clientResult.length) {
+                await conn.rollback();
+                return FactureController.handleClientError(res, "Client introuvable");
+            }
+    
+            const clientNom = clientResult[0].nom;
+    
+            // Vérification des produits et calcul du prix total
+            const { prix_total, produitsVerifies, errors } = 
+                await FactureController.verifierProduits(conn, produits);
+    
+            if (errors.length > 0) {
+                await conn.rollback();
+                return FactureController.handleClientError(res, errors.join(' '));
+            }
+    
+            // Création de la facture
+            const factureId = await FactureController.creerFacture(conn, client_id, prix_total);
+            
+            // Ajout des articles et mise à jour du stock
+            await FactureController.ajouterArticlesFacture(conn, factureId, produitsVerifies);
+            await FactureController.mettreAJourStocks(conn, produitsVerifies);
+    
+            await conn.commit();
+            
+            res.status(201).json({ 
+                success: true,
+                message: "Facture créée avec succès", 
+                data: { 
+                    id: factureId, 
+                    nom_client: clientNom, 
+                    prix_total: Number(prix_total).toFixed(2), 
+                    produits: produitsVerifies,
+                    date_creation: new Date()
+                } 
+            });
+    
+        } catch (error) {
+            if (conn) await conn.rollback();
+            console.error("Erreur lors de la création de la facture:", error);
+            FactureController.handleServerError(res, error, "création de la facture");
+        } finally {
+            if (conn) conn.release();
+        }
+    }
+    
     static async verifierProduits(conn, produits) {
         let prix_total = 0;
         const produitsVerifies = [];
         const errors = [];
-
+    
         for (const produit of produits) {
             const produit_id = parseInt(produit.produit_id);
             const quantite = parseInt(produit.quantite);
+            const prix = parseFloat(produit.prix);
             
             if (isNaN(produit_id) || isNaN(quantite) || quantite <= 0) {
                 errors.push("Chaque produit doit avoir un ID et une quantité valide (nombre positif)");
                 continue;
             }
-
+    
+            if (isNaN(prix) || prix <= 0) {
+                errors.push(`Prix invalide pour le produit ID ${produit_id}`);
+                continue;
+            }
+    
             const [stockResults] = await conn.query(
-                "SELECT id, nom, quantite, prix_vente FROM produits WHERE id = ?", 
+                "SELECT id, nom, quantite FROM produits WHERE id = ?", 
                 [produit_id]
             );
-
+    
             if (!stockResults?.length) {
                 errors.push(`Le produit avec l'ID ${produit_id} n'existe pas`);
                 continue;
             }
-
+    
             const stock = stockResults[0];
             if (stock.quantite < quantite) {
                 errors.push(`Stock insuffisant pour le produit ${stock.nom}`);
                 continue;
             }
-
-            prix_total += stock.prix_vente * quantite;
-            produitsVerifies.push({ produit_id, quantite, prix_vente: stock.prix_vente });
+    
+            prix_total += prix * quantite;
+            produitsVerifies.push({ 
+                produit_id, 
+                quantite, 
+                prix,
+                nom: stock.nom,
+                prix_original: stock.prix_vente // Optionnel: garder une trace du prix original
+            });
         }
-
+    
         return { prix_total, produitsVerifies, errors };
     }
     
     static async ajouterArticlesFacture(conn, factureId, produits) {
-        if (!produits.length) return;  // Évite une requête vide
-
-        const articlesData = produits.map(p => [factureId, p.produit_id, p.quantite]);
+        if (!produits.length) return;
+    
+        const articlesData = produits.map(p => [factureId, p.produit_id, p.prix, p.quantite]);
         await conn.query(
-            `INSERT INTO articles_facture (facture_id, produit_id, quantite) VALUES ? 
-            ON DUPLICATE KEY UPDATE quantite = quantite + VALUES(quantite)`, 
+            `INSERT INTO articles_facture (facture_id, produit_id, prix, quantite) VALUES ?`,
             [articlesData]
         );
     }

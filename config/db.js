@@ -110,6 +110,7 @@ const databaseSchema = {
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     facture_id INT NOT NULL,
                     produit_id INT NOT NULL,
+                    prix INT NOT NULL,
                     quantite INT NOT NULL,
                     code_garantie VARCHAR(50) NULL DEFAULT NULL,
                     duree_garantie VARCHAR(50) NULL DEFAULT NULL,
