@@ -3,65 +3,70 @@ const db = require('../config/db');
 class FactureController {
     static async getAllFactures(req, res) {
         try {
-            await db.testConnection();
+          await db.testConnection();
+          console.log('Connexion à la base de données réussie');
+      
+          const factures = await db.query(`
+            SELECT 
+              f.id AS facture_id,
+              c.nom AS nom_client,
+              f.prix_total,
+              f.date_creation,
+              p.id AS produit_id,
+              p.nom AS produit_nom,
+              p.prix_vente AS produit_prix_vente,
+              p.prix_achat AS produit_prix_achat,
+              af.quantite AS produit_quantite,
+              af.code_garantie,
+              af.duree_garantie
+            FROM factures f
+            LEFT JOIN clients c ON f.client_id = c.id
+            LEFT JOIN articles_facture af ON f.id = af.facture_id
+            LEFT JOIN produits p ON af.produit_id = p.id
+            ORDER BY f.date_creation DESC
+          `);
+          
+          // Si db.query retourne [rows, fields], déstructurer ici
+          const rows = Array.isArray(factures[0]) ? factures[0] : factures;
+          
+          if (!rows?.length) {
+            return FactureController.handleNotFound(res, "Aucune facture trouvée");
+          }
+      
+          const facturesMap = rows.reduce((acc, row) => {
+            const factureId = row.facture_id;
             
-            const [factures] = await db.query(`
-                SELECT 
-                    f.id AS facture_id,
-                    c.nom AS nom_client,
-                    f.prix_total,
-                    f.date_creation,
-                    p.id AS produit_id,
-                    p.nom AS produit_nom,
-                    p.prix_vente AS produit_prix_vente,
-                    p.prix_achat AS produit_prix_achat,
-                    af.quantite AS produit_quantite,
-                    af.code_garantie,
-                    af.duree_garantie
-                FROM factures f
-                LEFT JOIN clients c ON f.client_id = c.id
-                LEFT JOIN articles_facture af ON f.id = af.facture_id
-                LEFT JOIN produits p ON af.produit_id = p.id
-                ORDER BY f.date_creation DESC
-            `);
-
-            if (!factures?.length) {
-                return FactureController.handleNotFound(res, "Aucune facture trouvée");
+            if (!acc[factureId]) {
+              acc[factureId] = { 
+                id: factureId, 
+                nom_client: row.nom_client || 'Client inconnu',
+                prix_total: Number(row.prix_total || 0).toFixed(2),
+                date_creation: row.date_creation, 
+                produits: [] 
+              };
             }
-
-            const facturesMap = factures.reduce((acc, row) => {
-                const factureId = row.facture_id;
-                
-                if (!acc[factureId]) {
-                    acc[factureId] = { 
-                        id: factureId, 
-                        nom_client: row.nom_client, 
-                        prix_total: Number(row.prix_total).toFixed(2),
-                        date_creation: row.date_creation, 
-                        produits: [] 
-                    };
-                }
-
-                if (row.produit_id) {
-                    acc[factureId].produits.push(FactureController.formatProduitFacture(row));
-                }
-
-                return acc;
-            }, {});
-
-            res.status(200).json({
-                success: true,
-                message: "Factures récupérées avec succès",
-                data: Object.values(facturesMap),
-                count: Object.keys(facturesMap).length
-            });
-
+      
+            if (row.produit_id) {
+              acc[factureId].produits.push(FactureController.formatProduitFacture(row));
+            }
+      
+            return acc;
+          }, {});
+          
+          const formattedFactures = Object.values(facturesMap);
+      
+          res.status(200).json({
+            success: true,
+            message: "Factures récupérées avec succès",
+            data: formattedFactures,
+            count: formattedFactures.length
+          });
         } catch (err) {
-            console.error("Erreur lors de la récupération des factures:", err);
-            FactureController.handleServerError(res, err, "récupération des factures");
+          console.error("Erreur lors de la récupération des factures:", err);
+          FactureController.handleServerError(res, err, "récupération des factures");
         }
-    }
-    
+      }
+          
     static async deleteFacture(req, res) {
         const factureId = parseInt(req.params.id, 10);
         let conn;
@@ -446,4 +451,5 @@ class FactureController {
     }
 
 }
+
 module.exports = FactureController;
