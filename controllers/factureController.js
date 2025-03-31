@@ -109,6 +109,29 @@ class FactureController {
         return result.insertId;
     }
 
+    static handleNotFound(res, message = "Ressource non trouvée") {
+        return res.status(404).json({
+            success: false,
+            message,
+            data: []
+        });
+    }
+
+    static handleClientError(res, message, statusCode = 400) {
+        return res.status(statusCode).json({
+            success: false,
+            message
+        });
+    }
+    
+    static handleServerError(res, error, context = "") {
+        return res.status(500).json({ 
+            success: false,
+            message: `Erreur serveur${context ? ` lors de la ${context}` : ''}`,
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+
 
     static async createFactureWithClient(req, res) {
         const { client, produits } = req.body;
@@ -421,6 +444,6 @@ class FactureController {
             duree_garantie: row.duree_garantie
         };
     }
-    
+
 }
 module.exports = FactureController;

@@ -361,7 +361,7 @@ static formatProduit(produit) {
     quantite: Number(produit.quantite) || 0,
     categorie_id: produit.categorie_id ?? null,
     categorie_nom: produit.categorie_nom ?? null,
-    image: JSON.parse(produit.image) 
+    image: produit.image
   };
 }
   static handleNotFound(res, message = "Ressource non trouvée") {
