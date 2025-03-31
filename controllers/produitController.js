@@ -105,8 +105,8 @@ class ProduitController {
             prix_vente: parseFloat(req.body.prix_vente),
             quantite: parseInt(req.body.quantite) || 0,
             categorie_id: parseInt(req.body.categorie_id),
-            image: req.files?.length ? JSON.stringify(FileService.processUploadedFiles(req.files)) : null // Gère tous les fichiers envoyés
-        };
+            image: req.processedFiles?.length ? JSON.stringify(req.processedFiles) : null
+          };
 
         if (!produitData.nom || 
             isNaN(produitData.prix_achat) || 
@@ -202,18 +202,18 @@ static async updateProduit(req, res) {
       };
 
       if (req.files?.length) {
-          updates.image = JSON.stringify(FileService.processUploadedFiles(req.files));
-          if (existingProduit.image) {
-              const oldImages = Array.isArray(existingProduit.image) ? existingProduit.image : [];
-              await Promise.all(
-                  oldImages.map(image => 
-                      FileService.deleteFile(image.path).catch(err => 
-                          console.error(`Erreur suppression ancienne image ${image.path}:`, err)
-                      )
-                  )
-              );
-          }
-      }
+        updates.image = JSON.stringify(req.processedFiles);
+        if (existingProduit.image) {
+            const oldImages = JSON.parse(existingProduit.image || '[]');
+            await Promise.all(
+                oldImages.map(image => 
+                    FileService.deleteFile(image.path).catch(err => 
+                        console.error(`Erreur suppression ancienne image ${image.path}:`, err)
+                    )
+                )
+            );
+        }
+    }
 
       const cleanUpdates = Object.fromEntries(
           Object.entries(updates).filter(([_, value]) => value !== undefined)
@@ -298,16 +298,15 @@ static async updateProduit(req, res) {
 
         const produit = produits[0];
         if (produit.image) {
-            // Pas besoin de JSON.parse, produit.image est déjà un objet ou null
-            const images = Array.isArray(produit.image) ? produit.image : [];
-            await Promise.all(
-                images.map(image => 
-                    FileService.deleteFile(image.path).catch(err => 
-                        console.error(`Erreur suppression image ${image.path}:`, err)
-                    )
-                )
-            );
-        }
+          const images = JSON.parse(produit.image || '[]'); // Désérialiser
+          await Promise.all(
+              images.map(image => 
+                  FileService.deleteFile(image.path).catch(err => 
+                      console.error(`Erreur suppression image ${image.path}:`, err)
+                  )
+              )
+          );
+      }
 
         await db.query("DELETE FROM produits WHERE id = ?", [produitId]);
 
@@ -345,7 +344,7 @@ static formatProduit(produit) {
       quantite: Number(produit.quantite) || 0,
       categorie_id: produit.categorie_id ?? null,
       categorie_nom: produit.categorie_nom ?? null,
-      image: produit.image ?? [{ filename : "default" , path : "uploads/default.jpg"}]
+      image: produit.image ? JSON.parse(produit.image) : [{ filename: "default", path: "uploads/default.jpg" }]
   };
 }
 
