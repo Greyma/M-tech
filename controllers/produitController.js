@@ -321,33 +321,49 @@ static async updateProduit(req, res) {
 }
 
 static formatProduit(produit) {
-
   const barcode = generateBarcode(produit.id);
 
+  // Fonction pour valider et parser le JSON en toute sécurité
+  const parseImage = (image) => {
+    if (!image) {
+      return [{ filename: "default", path: "uploads/default.jpg" }];
+    }
+    try {
+      // Vérifier si image est une chaîne valide avant de parser
+      if (typeof image === 'string' && image.trim().startsWith('[')) {
+        return JSON.parse(image);
+      }
+      console.warn(`Image invalide pour produit ${produit.id}: ${image}`);
+      return [{ filename: "default", path: "uploads/default.jpg" }];
+    } catch (err) {
+      console.error(`Erreur parsing image pour produit ${produit.id}:`, err);
+      return [{ filename: "default", path: "uploads/default.jpg" }];
+    }
+  };
+
   return {
-      id: barcode,
-      nom: produit.nom || '',
-      marque: produit.marque ?? null,
-      description: produit.description ?? null,
-      processeur: produit.processeur ?? null,
-      ram: produit.ram ?? null,
-      stockage: produit.stockage ?? null,
-      gpu: produit.gpu ?? null,
-      batterie: produit.batterie ?? null,
-      ecran_tactile: Boolean(produit.ecran_tactile),
-      ecran_type: produit.ecran_type ?? null,
-      code_amoire: produit.code_amoire ?? null,
-      reference: produit.reference ?? null,
-      etat: produit.etat || 'neuf',
-      prix_achat: Number(produit.prix_achat) || 0,
-      prix_vente: Number(produit.prix_vente) || 0,
-      quantite: Number(produit.quantite) || 0,
-      categorie_id: produit.categorie_id ?? null,
-      categorie_nom: produit.categorie_nom ?? null,
-      image: produit.image ? JSON.parse(produit.image) : [{ filename: "default", path: "uploads/default.jpg" }]
+    id: barcode,
+    nom: produit.nom || '',
+    marque: produit.marque ?? null,
+    description: produit.description ?? null,
+    processeur: produit.processeur ?? null,
+    ram: produit.ram ?? null,
+    stockage: produit.stockage ?? null,
+    gpu: produit.gpu ?? null,
+    batterie: produit.batterie ?? null,
+    ecran_tactile: Boolean(produit.ecran_tactile),
+    ecran_type: produit.ecran_type ?? null,
+    code_amoire: produit.code_amoire ?? null,
+    reference: produit.reference ?? null,
+    etat: produit.etat || 'neuf',
+    prix_achat: Number(produit.prix_achat) || 0,
+    prix_vente: Number(produit.prix_vente) || 0,
+    quantite: Number(produit.quantite) || 0,
+    categorie_id: produit.categorie_id ?? null,
+    categorie_nom: produit.categorie_nom ?? null,
+    image: parseImage(produit.image)
   };
 }
-
   static handleNotFound(res, message = "Ressource non trouvée") {
     return res.status(404).json({
       success: false,
