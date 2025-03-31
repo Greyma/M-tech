@@ -15,7 +15,9 @@ class FactureController {
                     p.nom AS produit_nom,
                     p.prix_vente AS produit_prix_vente,
                     p.prix_achat AS produit_prix_achat,
-                    af.quantite AS produit_quantite
+                    af.quantite AS produit_quantite,
+                    af.code_garantie,
+                    af.duree_garantie
                 FROM factures f
                 LEFT JOIN clients c ON f.client_id = c.id
                 LEFT JOIN articles_facture af ON f.id = af.facture_id
@@ -108,6 +110,78 @@ class FactureController {
     }
 
 
+    static async createFactureWithClient(req, res) {
+        const { client, produits } = req.body;
+        let conn;
+    
+        if (!client?.nom || !Array.isArray(produits) || produits.length === 0) {
+            return FactureController.handleClientError(
+                res, 
+                "Un client (avec au moins un nom) et une liste de produits non vide sont requis"
+            );
+        }
+    
+        try {
+            conn = await db.getConnection();
+            await conn.beginTransaction();
+    
+            // 1. Création du client
+            const [clientResult] = await conn.query(
+                "INSERT INTO clients (nom, email, telephone, wilaya, recommendation) VALUES (?, ?, ?, ?, ?)",
+                [
+                    client.nom,
+                    client.email || null,
+                    client.telephone || null,
+                    client.wilaya || null,
+                    client.recommendation || null
+                ]
+            );
+    
+            const clientId = clientResult.insertId;
+    
+            // 2. Vérification des produits et calcul du prix total
+            const { prix_total, produitsVerifies, errors } = 
+                await FactureController.verifierProduits(conn, produits);
+    
+            if (errors.length > 0) {
+                await conn.rollback();
+                return FactureController.handleClientError(res, errors.join(' '));
+            }
+    
+            // 3. Création de la facture
+            const factureId = await FactureController.creerFacture(conn, clientId, prix_total);
+            
+            // 4. Ajout des articles et mise à jour du stock
+            await FactureController.ajouterArticlesFacture(conn, factureId, produitsVerifies);
+            await FactureController.mettreAJourStocks(conn, produitsVerifies);
+    
+            await conn.commit();
+            
+            // Récupération du nom du client pour la réponse
+            const clientNom = client.nom;
+    
+            res.status(201).json({ 
+                success: true,
+                message: "Facture et client créés avec succès", 
+                data: { 
+                    facture_id: factureId, 
+                    client_id: clientId,
+                    nom_client: clientNom, 
+                    prix_total: Number(prix_total).toFixed(2), 
+                    produits: produitsVerifies,
+                    date_creation: new Date()
+                } 
+            });
+    
+        } catch (error) {
+            if (conn) await conn.rollback();
+            console.error("Erreur lors de la création de la facture avec client:", error);
+            FactureController.handleServerError(res, error, "création de la facture avec client");
+        } finally {
+            if (conn) conn.release();
+        }
+    }
+
     static async createFacture(req, res) {
         const { client_id, produits } = req.body; // Retirer 'prix' car il est maintenant dans chaque produit
         let conn;
@@ -181,55 +255,77 @@ class FactureController {
         const errors = [];
     
         for (const produit of produits) {
-            const produit_id = parseInt(produit.produit_id);
-            const quantite = parseInt(produit.quantite);
-            const prix = parseFloat(produit.prix);
+                const produit_id = parseInt(produit.produit_id);
+                const quantite = parseInt(produit.quantite);
+                const prix = parseFloat(produit.prix);
+                
+                if (isNaN(produit_id) || isNaN(quantite) || quantite <= 0) {
+                    errors.push("Chaque produit doit avoir un ID et une quantité valide (nombre positif)");
+                    continue;
+                }
+        
+                if (isNaN(prix) || prix <= 0) {
+                    errors.push(`Prix invalide pour le produit ID ${produit_id}`);
+                    continue;
+                }
+        
+                const [stockResults] = await conn.query(
+                    "SELECT id, nom, quantite FROM produits WHERE id = ?", 
+                    [produit_id]
+                );
+        
+                if (!stockResults?.length) {
+                    errors.push(`Le produit avec l'ID ${produit_id} n'existe pas`);
+                    continue;
+                }
+        
+                const stock = stockResults[0];
+                if (stock.quantite < quantite) {
+                    errors.push(`Stock insuffisant pour le produit ${stock.nom}`);
+                    continue;
+                }
+        
+                prix_total += prix * quantite;
             
-            if (isNaN(produit_id) || isNaN(quantite) || quantite <= 0) {
-                errors.push("Chaque produit doit avoir un ID et une quantité valide (nombre positif)");
-                continue;
+            // Validation des champs garantie
+            if (produit.code_garantie && produit.code_garantie.length > 50) {
+                errors.push(`Le code garantie pour le produit ${produit.produit_id} est trop long`);
+            }
+            
+            if (produit.duree_garantie && produit.duree_garantie.length > 50) {
+                errors.push(`La durée de garantie pour le produit ${produit.produit_id} est trop longue`);
             }
     
-            if (isNaN(prix) || prix <= 0) {
-                errors.push(`Prix invalide pour le produit ID ${produit_id}`);
-                continue;
-            }
-    
-            const [stockResults] = await conn.query(
-                "SELECT id, nom, quantite FROM produits WHERE id = ?", 
-                [produit_id]
-            );
-    
-            if (!stockResults?.length) {
-                errors.push(`Le produit avec l'ID ${produit_id} n'existe pas`);
-                continue;
-            }
-    
-            const stock = stockResults[0];
-            if (stock.quantite < quantite) {
-                errors.push(`Stock insuffisant pour le produit ${stock.nom}`);
-                continue;
-            }
-    
-            prix_total += prix * quantite;
             produitsVerifies.push({ 
                 produit_id, 
                 quantite, 
                 prix,
+                code_garantie: produit.code_garantie || null,
+                duree_garantie: produit.duree_garantie || null,
                 nom: stock.nom,
-                prix_original: stock.prix_vente // Optionnel: garder une trace du prix original
+                prix_original: stock.prix_vente
             });
         }
     
         return { prix_total, produitsVerifies, errors };
     }
-    
+
     static async ajouterArticlesFacture(conn, factureId, produits) {
         if (!produits.length) return;
     
-        const articlesData = produits.map(p => [factureId, p.produit_id, p.prix, p.quantite]);
+        const articlesData = produits.map(p => [
+            factureId, 
+            p.produit_id, 
+            p.prix, 
+            p.quantite,
+            p.code_garantie || null,  // Nouveau champ
+            p.duree_garantie || null // Nouveau champ
+        ]);
+    
         await conn.query(
-            `INSERT INTO articles_facture (facture_id, produit_id, prix, quantite) VALUES ?`,
+            `INSERT INTO articles_facture 
+            (facture_id, produit_id, prix, quantite, code_garantie, duree_garantie) 
+            VALUES ?`,
             [articlesData]
         );
     }
@@ -313,15 +409,18 @@ class FactureController {
         const quantite = Number(row.produit_quantite) || 0;
         const prixVente = Number(row.produit_prix_vente) || 0;
         const prixAchat = Number(row.produit_prix_achat) || 0;
-
+    
         return {
             id: row.produit_id,
             nom: row.produit_nom,
             quantite,
             prix_vente: prixVente.toFixed(2),
             prix_achat: prixAchat.toFixed(2),
-            prix_total: (prixVente * quantite).toFixed(2)
+            prix_total: (prixVente * quantite).toFixed(2),
+            code_garantie: row.code_garantie,
+            duree_garantie: row.duree_garantie
         };
     }
+    
 }
 module.exports = FactureController;

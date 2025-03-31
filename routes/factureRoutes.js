@@ -8,6 +8,8 @@ router.get('/', FactureController.getAllFactures);
 // POST /api/factures - Crée une nouvelle facture
 router.post('/', FactureController.createFacture);
 
+router.post('/with-client', FactureController.createFactureWithClient);
+
 // DELETE /api/factures/:id - Supprime une facture
 router.delete('/:id', FactureController.deleteFacture);
 
