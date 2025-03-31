@@ -16,11 +16,8 @@ class FileService {
         // Vérifier si le fichier est déjà en AVIF (pas besoin de convertir)
         if (file.mimetype === 'image/avif') {
           processedFiles.push({
-            originalName: file.originalname,
             filename: file.filename,
-            path: file.path,
-            mimetype: 'image/avif',
-            size: file.size
+            path: file.path
           });
           return;
         }
@@ -41,8 +38,6 @@ class FileService {
 
         // Vérifier le fichier généré
         const stats = fs.statSync(avifPath);
-        console.log(`Fichier AVIF généré : ${avifPath}, Taille : ${stats.size} octets`);
-
         if (stats.size === 0) {
           throw new Error('Le fichier AVIF généré est vide');
         }
@@ -51,21 +46,14 @@ class FileService {
         await unlink(file.path);
 
         processedFiles.push({
-          originalName: file.originalname,
           filename: avifFilename,
-          path: avifPath,
-          mimetype: 'image/avif',
-          size: stats.size
+          path: avifPath
         });
       } catch (err) {
-        console.error(`Échec conversion AVIF pour ${file.originalname}:`, err);
         // Fallback : conserver le fichier original en cas d'erreur
         processedFiles.push({
-          originalName: file.originalname,
           filename: file.filename,
-          path: file.path,
-          mimetype: file.mimetype,
-          size: file.size
+          path: file.path
         });
       }
     }));
@@ -86,7 +74,6 @@ class FileService {
 
   static processUploadedFiles(files) {
     return files.map(file => ({
-      fieldname: file.fieldname,
       path: file.path,
       filename: file.filename
     }));

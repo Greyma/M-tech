@@ -23,7 +23,7 @@ const fileFilter = (req, file, cb) => {
   if (extValid && mimeValid) {
     return cb(null, true);
   }
-  cb(new Error(`Type de fichier non supporté : ${file.originalname}`)); // Message d'erreur plus précis
+  cb(new Error(`Type de fichier non supporté `)); // Message d'erreur plus précis
 };
 
 // Initialisation de Multer
