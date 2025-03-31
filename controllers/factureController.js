@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { generateBarcode, decodeBarcode } = require('./barcode');
 
 class FactureController {
     static async getAllFactures(req, res) {
@@ -283,7 +284,7 @@ class FactureController {
         const errors = [];
     
         for (const produit of produits) {
-                const produit_id = parseInt(produit.produit_id);
+                const produit_id = decodeBarcode(produit.produit_id.toString()).id;
                 const quantite = parseInt(produit.quantite);
                 const prix = parseFloat(produit.prix);
                 
@@ -438,8 +439,10 @@ class FactureController {
         const prixVente = Number(row.produit_prix_vente) || 0;
         const prixAchat = Number(row.produit_prix_achat) || 0;
     
+        
+
         return {
-            id: row.produit_id,
+            id: produit.id,
             nom: row.produit_nom,
             quantite,
             prix_vente: prixVente.toFixed(2),

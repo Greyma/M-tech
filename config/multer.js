@@ -33,18 +33,15 @@ const upload = multer({
 const processAndConvert = async (req, res, next) => {
   try {
     if (req.files?.length) {
-      console.log('Fichiers reçus par Multer :', req.files);
       req.processedFiles = await FileService.convertToAVIF(req.files);
       if (!Array.isArray(req.processedFiles) || req.processedFiles.length === 0) {
         throw new Error('Échec de la conversion des fichiers en AVIF');
       }
-      console.log('Fichiers convertis :', req.processedFiles);
     } else {
       req.processedFiles = []; // Tableau vide si pas de fichiers
     }
     next();
   } catch (err) {
-    console.error('Erreur dans processAndConvert :', err);
     // Fallback : conserver les fichiers originaux si la conversion échoue
     req.processedFiles = req.files?.length ? FileService.processUploadedFiles(req.files) : [];
     next(); // Continuer même en cas d'erreur pour ne pas bloquer

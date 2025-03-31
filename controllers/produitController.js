@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const { generateBarcode, decodeBarcode } = require('./barcode');
 const FileService = require('../services/fileService');
+const { json } = require('body-parser');
 
 class ProduitController {
   static async getAllProduits(req, res) {
@@ -161,120 +162,133 @@ class ProduitController {
 
 static async updateProduit(req, res) {
   try {
-       const prodId = parseInt(req.params.id, 10);
+    const prodId = parseInt(req.params.id, 10);
+    const prod = decodeBarcode(prodId.toString());
+    const produitId = prod.id;
 
-      
-      const prod = decodeBarcode(prodId.toString());
+    if (isNaN(produitId)) {
+      return ProduitController.handleClientError(res, "ID du produit invalide");
+    }
 
-      const produitId = prod.id;
-      if (isNaN(produitId)) {
-          return ProduitController.handleClientError(res, "ID du produit invalide");
+    const existingProduitsRaw = await db.query(
+      `SELECT image FROM produits WHERE id = ?`,
+      [produitId]
+    );
+    console.log('Résultat brut de db.query :', existingProduitsRaw);
+
+    // Normalisation : s'assurer que c'est un tableau
+    let existingProduits = Array.isArray(existingProduitsRaw) ? existingProduitsRaw : [existingProduitsRaw];
+    console.log('existingProduits après normalisation :', existingProduits);
+
+    if (!existingProduits.length || !existingProduits[0]) {
+      return ProduitController.handleNotFound(res, "Produit non trouvé");
+    }
+
+    const existingProduit = existingProduits[0];
+    console.log('existingProduit :', existingProduit);
+
+    const updates = {
+      nom: req.body.nom,
+      marque: req.body.marque ?? undefined,
+      description: req.body.description ?? undefined,
+      processeur: req.body.processeur ?? undefined,
+      ram: req.body.ram ?? undefined,
+      stockage: req.body.stockage ?? undefined,
+      gpu: req.body.gpu ?? undefined,
+      batterie: req.body.batterie ?? undefined,
+      ecran_tactile: req.body.ecran_tactile !== undefined ? req.body.ecran_tactile === 'true' : undefined,
+      ecran_type: req.body.ecran_type ?? undefined,
+      code_amoire: req.body.code_amoire ?? undefined,
+      reference: req.body.reference ?? undefined,
+      etat: req.body.etat,
+      prix_achat: req.body.prix_achat ? parseFloat(req.body.prix_achat) : undefined,
+      prix_vente: req.body.prix_vente ? parseFloat(req.body.prix_vente) : undefined,
+      quantite: req.body.quantite ? parseInt(req.body.quantite, 10) : undefined,
+      categorie_id: req.body.categorie_id ? parseInt(req.body.categorie_id, 10) : undefined
+    };
+
+    // Gestion sécurisée des images
+    if (req.processedFiles?.length) {
+      if (!Array.isArray(req.processedFiles) || 
+          !req.processedFiles.every(file => file.filename && file.path)) {
+        throw new Error("Données d'image invalides dans req.processedFiles");
       }
-
-      const existingProduits = await db.query(
-          `SELECT image FROM produits WHERE id = ?`,
-          [produitId]
-      );
-      if (!existingProduits?.length) {
-          return ProduitController.handleNotFound(res, "Produit non trouvé");
-      }
-
-      const existingProduit = existingProduits[0];
-
-      const updates = {
-          nom: req.body.nom,
-          marque: req.body.marque ?? undefined,
-          description: req.body.description ?? undefined,
-          processeur: req.body.processeur ?? undefined,
-          ram: req.body.ram ?? undefined,
-          stockage: req.body.stockage ?? undefined,
-          gpu: req.body.gpu ?? undefined,
-          batterie: req.body.batterie ?? undefined,
-          ecran_tactile: req.body.ecran_tactile !== undefined ? req.body.ecran_tactile === 'true' : undefined,
-          ecran_type: req.body.ecran_type ?? undefined,
-          code_amoire: req.body.code_amoire ?? undefined,
-          reference: req.body.reference ?? undefined,
-          etat: req.body.etat,
-          prix_achat: req.body.prix_achat ? parseFloat(req.body.prix_achat) : undefined,
-          prix_vente: req.body.prix_vente ? parseFloat(req.body.prix_vente) : undefined,
-          quantite: req.body.quantite ? parseInt(req.body.quantite) : undefined,
-          categorie_id: req.body.categorie_id ? parseInt(req.body.categorie_id) : undefined
-      };
-
-      if (req.processedFiles?.length) {
-        if (!Array.isArray(req.processedFiles) || 
-            !req.processedFiles.every(file => file.filename && file.path)) {
-          throw new Error("Données d'image invalides dans req.processedFiles");
-        }
-        updates.image = JSON.stringify(req.processedFiles);
-        if (existingProduit.image) {
-          const oldImages = JSON.parse(existingProduit.image || '[]');
-          await Promise.all(
-            oldImages.map(image =>
-              FileService.deleteFile(image.path).catch(err =>
-                console.error(`Erreur suppression ancienne image ${image.path}:`, err)
-              )
-            )
-          );
-        }
-      }
-
-      const cleanUpdates = Object.fromEntries(
-          Object.entries(updates).filter(([_, value]) => value !== undefined)
-      );
-
-    
-      if (!Object.keys(cleanUpdates).length) {
-          return ProduitController.handleClientError(res, "Aucune donnée valide à mettre à jour");
-      }
-
-      if (cleanUpdates.categorie_id) {
-          const categoryCheck = await db.query(
-              'SELECT id FROM categories WHERE id = ?',
-              [cleanUpdates.categorie_id]
-          );
-          if (!categoryCheck?.length) {
-              return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
+      updates.image = JSON.stringify(req.processedFiles);
+      if (existingProduit.image) {
+        let oldImages = [];
+        if (typeof existingProduit.image === 'string') {
+          try {
+            oldImages = JSON.parse(existingProduit.image || '[]');
+            if (!Array.isArray(oldImages)) throw new Error("Format d'image invalide");
+          } catch (err) {
+            console.error(`Erreur parsing image existante pour produit ${produitId}:`, err);
+            oldImages = [];
           }
+        } else if (Array.isArray(existingProduit.image)) {
+          oldImages = existingProduit.image; // Si c'est déjà un tableau
+        }
+        await Promise.all(
+          oldImages.map(image =>
+            FileService.deleteFile(image.path).catch(err =>
+              console.error(`Erreur suppression ancienne image ${image.path}:`, err)
+            )
+          )
+        );
       }
+    }
 
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([_, value]) => value !== undefined)
+    );
 
-      // Construire la clause SET dynamiquement
-      const setClause = Object.keys(cleanUpdates)
+    if (!Object.keys(cleanUpdates).length) {
+      return ProduitController.handleClientError(res, "Aucune donnée valide à mettre à jour");
+    }
+
+    if (cleanUpdates.categorie_id) {
+      const categoryCheck = await db.query(
+        'SELECT id FROM categories WHERE id = ?',
+        [cleanUpdates.categorie_id]
+      );
+      if (!categoryCheck.length) {
+        return ProduitController.handleClientError(res, "La catégorie spécifiée n'existe pas", 400);
+      }
+    }
+
+    const setClause = Object.keys(cleanUpdates)
       .map(key => `${key} = ?`)
       .join(', ');
-      const values = Object.values(cleanUpdates);
+    const values = Object.values(cleanUpdates);
 
-      const result = await db.query(
-          `UPDATE produits SET ${setClause} WHERE id = ?`,
-          [...values, produitId]
-      );
+    const result = await db.query(
+      `UPDATE produits SET ${setClause} WHERE id = ?`,
+      [...values, produitId]
+    );
 
-      if (!result.affectedRows) {
-          return ProduitController.handleNotFound(res, "Produit non trouvé");
-      }
+    if (!result.affectedRows) {
+      return ProduitController.handleNotFound(res, "Produit non trouvé ou aucune modification appliquée");
+    }
 
-      const updatedProduit = await db.query(
-          `SELECT * FROM produits WHERE id = ?`,
-          [produitId]
-      );
+    const updatedProduits = await db.query(
+      `SELECT * FROM produits WHERE id = ?`,
+      [produitId]
+    );
 
-      res.json({
-          success: true,
-          message: "Produit mis à jour avec succès",
-          data: ProduitController.formatProduit(updatedProduit[0])
-      });
-
+    res.json({
+      success: true,
+      message: "Produit mis à jour avec succès",
+      data: ProduitController.formatProduit(updatedProduits[0])
+    });
   } catch (error) {
-      console.error("Erreur mise à jour produit:", error);
-      if (error.message.includes("Duplicate entry") && error.message.includes("produits.reference")) {
-          return ProduitController.handleClientError(
-              res, 
-              `Un produit avec la référence '${req.body.reference}' existe déjà`, 
-              409
-          );
-      }
-      ProduitController.handleServerError(res, error, "mise à jour du produit");
+    console.error("Erreur mise à jour produit:", error);
+    if (error.message.includes("Duplicate entry") && error.message.includes("produits.reference")) {
+      return ProduitController.handleClientError(
+        res,
+        `Un produit avec la référence '${req.body.reference}' existe déjà`,
+        409
+      );
+    }
+    ProduitController.handleServerError(res, error, "mise à jour du produit");
   }
 }
 
