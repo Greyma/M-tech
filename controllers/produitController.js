@@ -201,19 +201,23 @@ static async updateProduit(req, res) {
           categorie_id: req.body.categorie_id ? parseInt(req.body.categorie_id) : undefined
       };
 
-      if (req.files?.length) {
+      if (req.processedFiles?.length) {
+        if (!Array.isArray(req.processedFiles) || 
+            !req.processedFiles.every(file => file.filename && file.path)) {
+          throw new Error("Données d'image invalides dans req.processedFiles");
+        }
         updates.image = JSON.stringify(req.processedFiles);
         if (existingProduit.image) {
-            const oldImages = JSON.parse(existingProduit.image || '[]');
-            await Promise.all(
-                oldImages.map(image => 
-                    FileService.deleteFile(image.path).catch(err => 
-                        console.error(`Erreur suppression ancienne image ${image.path}:`, err)
-                    )
-                )
-            );
+          const oldImages = JSON.parse(existingProduit.image || '[]');
+          await Promise.all(
+            oldImages.map(image =>
+              FileService.deleteFile(image.path).catch(err =>
+                console.error(`Erreur suppression ancienne image ${image.path}:`, err)
+              )
+            )
+          );
         }
-    }
+      }
 
       const cleanUpdates = Object.fromEntries(
           Object.entries(updates).filter(([_, value]) => value !== undefined)
@@ -323,24 +327,6 @@ static async updateProduit(req, res) {
 static formatProduit(produit) {
   const barcode = generateBarcode(produit.id);
 
-  // Fonction pour valider et parser le JSON en toute sécurité
-  const parseImage = (image) => {
-    if (!image) {
-      return [{ filename: "default", path: "uploads/default.jpg" }];
-    }
-    try {
-      // Vérifier si image est une chaîne valide avant de parser
-      if (typeof image === 'string' && image.trim().startsWith('[')) {
-        return JSON.parse(image);
-      }
-      console.warn(`Image invalide pour produit ${produit.id}: ${image}`);
-      return [{ filename: "default", path: "uploads/default.jpg" }];
-    } catch (err) {
-      console.error(`Erreur parsing image pour produit ${produit.id}:`, err);
-      return [{ filename: "default", path: "uploads/default.jpg" }];
-    }
-  };
-
   return {
     id: barcode,
     nom: produit.nom || '',
@@ -361,7 +347,7 @@ static formatProduit(produit) {
     quantite: Number(produit.quantite) || 0,
     categorie_id: produit.categorie_id ?? null,
     categorie_nom: produit.categorie_nom ?? null,
-    image: produit.image
+    image: produit.image ? JSON.parse(produit.image) : null
   };
 }
   static handleNotFound(res, message = "Ressource non trouvée") {
