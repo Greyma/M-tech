@@ -4,9 +4,7 @@ const { generateBarcode, decodeBarcode } = require('./barcode');
 class FactureController {
     static async getAllFactures(req, res) {
         try {
-          await db.testConnection();
-          console.log('Connexion à la base de données réussie');
-      
+          await db.testConnection();      
           const factures = await db.query(`
             SELECT 
               f.id AS facture_id,
@@ -439,10 +437,8 @@ class FactureController {
         const prixVente = Number(row.produit_prix_vente) || 0;
         const prixAchat = Number(row.produit_prix_achat) || 0;
     
-        
-
         return {
-            id: produit.id,
+            id: generateBarcode(row.produit_id),
             nom: row.produit_nom,
             quantite,
             prix_vente: prixVente.toFixed(2),
