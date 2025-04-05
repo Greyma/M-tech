@@ -55,23 +55,44 @@ const databaseSchema = {
                     nom VARCHAR(255) NOT NULL,
                     marque VARCHAR(100) NULL DEFAULT NULL,
                     description TEXT NULL DEFAULT NULL,
-                    processeur VARCHAR(100) NULL DEFAULT NULL,
+                    
+                    -- CPU
+                    cpu_generation VARCHAR(50) NULL DEFAULT NULL,
+                    cpu_type VARCHAR(100) NULL DEFAULT NULL,
+                    
+                    -- RAM
                     ram VARCHAR(50) NULL DEFAULT NULL,
-                    stockage VARCHAR(50) NULL DEFAULT NULL,
-                    gpu VARCHAR(100) NULL DEFAULT NULL,
-                    batterie VARCHAR(100) NULL DEFAULT NULL,
+                    
+                    -- Écran
+                    ecran_pouce DECIMAL(4,1) NULL DEFAULT NULL,
                     ecran_tactile BOOLEAN NULL DEFAULT NULL,
                     ecran_type VARCHAR(100) NULL DEFAULT NULL,
+                    
+                    -- Stockage
+                    stockage_ssd VARCHAR(50) NULL DEFAULT NULL,
+                    stockage_hdd VARCHAR(50) NULL DEFAULT NULL,
+                    
+                    -- GPU
+                    gpu_1 VARCHAR(100) NULL DEFAULT NULL,
+                    gpu_2 VARCHAR(100) NULL DEFAULT NULL,
+                    
+                    -- Prix
+                    prix_achat DECIMAL(10,2) NOT NULL,
+                    prix_vente DECIMAL(10,2) NOT NULL,
+                    
+                    -- Autres champs
+                    batterie VARCHAR(100) NULL DEFAULT NULL,
                     code_amoire VARCHAR(50) NULL DEFAULT NULL,
                     reference VARCHAR(100) UNIQUE NULL DEFAULT NULL,
                     etat ENUM('neuf', 'occasion', 'reconditionne') NULL DEFAULT 'neuf',
-                    prix_achat DECIMAL(10,2) NOT NULL,
-                    prix_vente DECIMAL(10,2) NOT NULL,
                     quantite INT NOT NULL DEFAULT 0,
                     categorie_id INT NULL DEFAULT NULL,
                     image JSON NULL DEFAULT NULL,
+                    
+                    -- Timestamps
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    
                     FOREIGN KEY (categorie_id) REFERENCES categories(id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             `
