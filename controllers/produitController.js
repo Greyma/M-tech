@@ -378,6 +378,16 @@ static async updateProduit(req, res) {
 static formatProduit(produit) {
   const barcode = generateBarcode(produit.id);
 
+  const img = [
+    {
+        "path": "uploads/default.jpg",
+        "size": 36387,
+        "filename": "default.jpg",
+        "mimetype": "image/jpg",
+        "originalName": "default.jpg"
+    }
+];
+
   return {
     id: barcode,
     nom: produit.nom || '',
@@ -416,7 +426,7 @@ static formatProduit(produit) {
     quantite: Number(produit.quantite) || 0,
     categorie_id: produit.categorie_id ?? null,
     categorie_nom: produit.categorie_nom ?? null,
-    image: produit.image ? produit.image : null
+    image: produit.image ? produit.image : img
   };
 }
 
