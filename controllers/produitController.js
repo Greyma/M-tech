@@ -11,7 +11,7 @@ class ProduitController {
         // Pas de déstructuration, car db.query retourne directement results
         const produits = await db.query(`
             SELECT 
-                p.id, p.nom, p.marque, p.description, 
+                p.id, p.nom, p.marque, p.description, p.cpu,
                 p.cpu_generation, p.cpu_type, p.ram, 
                 p.ecran_pouce, p.ecran_tactile, p.ecran_type,
                 p.stockage_ssd, p.stockage_hdd, 
@@ -56,7 +56,7 @@ class ProduitController {
         const produits = await db.query(`
             SELECT 
                 p.id, p.nom, p.marque, p.description, 
-                p.cpu_generation, p.cpu_type, p.ram, 
+                p.cpu_generation, p.cpu, p.cpu_type, p.ram, 
                 p.ecran_pouce, p.ecran_tactile, p.ecran_type,
                 p.stockage_ssd, p.stockage_hdd, 
                 p.gpu_1, p.gpu_2,
@@ -91,6 +91,7 @@ class ProduitController {
             description: req.body.description ?? null,
             
             // CPU
+            cpu: req.body.cpu ?? null,
             cpu_generation: req.body.cpu_generation ?? null,
             cpu_type: req.body.cpu_type ?? null,
             
@@ -146,11 +147,11 @@ class ProduitController {
         // Insertion dans la base de données
         const result = await db.query(
             `INSERT INTO produits (
-                nom, marque, description, cpu_generation, cpu_type, ram, 
+                nom, marque, description, cpu, cpu_generation, cpu_type, ram, 
                 ecran_pouce, ecran_tactile, ecran_type, stockage_ssd, stockage_hdd, 
                 gpu_1, gpu_2, prix_achat, prix_vente, batterie, 
                 code_amoire, reference, etat, quantite, categorie_id, image
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             Object.values(produitData)
         );
 
@@ -212,6 +213,7 @@ static async updateProduit(req, res) {
       description: req.body.description ?? undefined,
       
       // CPU
+      cpu: req.body.cpu ?? undefined,
       cpu_generation: req.body.cpu_generation ?? undefined,
       cpu_type: req.body.cpu_type ?? undefined,
       
@@ -395,6 +397,7 @@ static formatProduit(produit) {
     description: produit.description ?? null,
     
     // CPU
+    cpu: produit.cpu || '',
     cpu_generation: produit.cpu_generation ?? null,
     cpu_type: produit.cpu_type ?? null,
     

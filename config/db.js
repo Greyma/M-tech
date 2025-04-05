@@ -57,6 +57,7 @@ const databaseSchema = {
                     description TEXT NULL DEFAULT NULL,
                     
                     -- CPU
+                    cpu VARCHAR(30) NULL DEFAULT NULL,
                     cpu_generation VARCHAR(50) NULL DEFAULT NULL,
                     cpu_type VARCHAR(100) NULL DEFAULT NULL,
                     
