@@ -117,7 +117,7 @@ const databaseSchema = {
             name: 'factures',
             schema: `
                 CREATE TABLE IF NOT EXISTS factures (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    id VARCHAR(20) PRIMARY KEY,
                     client_id INT NOT NULL,
                     prix_total DECIMAL(10,2) NOT NULL,
                     date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -130,7 +130,7 @@ const databaseSchema = {
             schema: `
                 CREATE TABLE IF NOT EXISTS articles_facture (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    facture_id INT NOT NULL,
+                    facture_id VARCHAR(20) NOT NULL,
                     produit_id INT NOT NULL,
                     prix INT NOT NULL,
                     quantite INT NOT NULL,

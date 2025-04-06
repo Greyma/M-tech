@@ -1,6 +1,21 @@
 const db = require('../config/db');
 const { generateBarcode, decodeBarcode } = require('./barcode');
 
+async function generateFactureId() {
+  const prefix = 'FAC';
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+
+  const [rows] = await db.execute(
+    'SELECT COUNT(*) AS count FROM factures WHERE id LIKE ?',
+    [`${prefix}${datePart}%`]
+  );
+
+  const count = rows[0].count + 1;
+  const countPart = String(count).padStart(4, '0');
+
+  const factureId = `${prefix}${datePart}${countPart}`;
+  return factureId;
+}
 class FactureController {
     static async getAllFactures(req, res) {
         try {
@@ -116,9 +131,10 @@ class FactureController {
     }
 
     static async creerFacture(conn, client_id, prix_total) {
+        const id = generateFactureId();
         const [result] = await conn.query(
-            "INSERT INTO factures (client_id, prix_total) VALUES (?, ?)", 
-            [client_id, prix_total]
+            "INSERT INTO factures (id,client_id, prix_total) VALUES (?,?, ?)", 
+            [id,client_id, prix_total]
         );
         return result.insertId;
     }

@@ -4,6 +4,7 @@ const FileService = require('../services/fileService');
 const { json } = require('body-parser');
 
 class ProduitController {
+
   static async getAllProduits(req, res) {
     try {
         await db.testConnection();
