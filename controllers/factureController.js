@@ -9,6 +9,10 @@ class FactureController {
             SELECT 
               f.id AS facture_id,
               c.nom AS nom_client,
+              c.email AS email_client,
+              c.telephone AS telephone_client,
+              c.wilaya AS wilaya_client,
+              c.recommendation AS recommendation_client,
               f.prix_total,
               f.date_creation,
               p.id AS produit_id,
@@ -38,7 +42,13 @@ class FactureController {
             if (!acc[factureId]) {
               acc[factureId] = { 
                 id: factureId, 
-                nom_client: row.nom_client || 'Client inconnu',
+                client: {
+                  nom: row.nom_client || 'Client inconnu',
+                  email: row.email_client || null,
+                  telephone: row.telephone_client || null,
+                  wilaya: row.wilaya_client || null,
+                  recommendation: row.recommendation_client || null 
+                },
                 prix_total: Number(row.prix_total || 0).toFixed(2),
                 date_creation: row.date_creation, 
                 produits: [] 
