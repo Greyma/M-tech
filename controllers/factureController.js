@@ -17,8 +17,8 @@ class FactureController {
               f.date_creation,
               p.id AS produit_id,
               p.nom AS produit_nom,
-              p.prix_vente AS produit_prix_vente,
-              p.prix_achat AS produit_prix_achat,
+              af.prix AS produit_prix_vente,
+              p.prix_vente AS produit_prix_original,
               af.quantite AS produit_quantite,
               af.code_garantie,
               af.duree_garantie
@@ -445,14 +445,14 @@ class FactureController {
     static formatProduitFacture(row) {
         const quantite = Number(row.produit_quantite) || 0;
         const prixVente = Number(row.produit_prix_vente) || 0;
-        const prixAchat = Number(row.produit_prix_achat) || 0;
+        const prix_original = Number(row.produit_prix_original) || 0;
     
         return {
             id: generateBarcode(row.produit_id),
             nom: row.produit_nom,
             quantite,
             prix_vente: prixVente.toFixed(2),
-            prix_achat: prixAchat.toFixed(2),
+            prix_original: prix_original.toFixed(2),
             prix_total: (prixVente * quantite).toFixed(2),
             code_garantie: row.code_garantie,
             duree_garantie: row.duree_garantie
