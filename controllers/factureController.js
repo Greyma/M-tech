@@ -128,7 +128,88 @@ class FactureController {
             FactureController.handleServerError(res, err, "récupération des factures");
         }
     }
+
+
+    static async getPaymentsForInvoices(factureIds) {
+        if (!factureIds || !Array.isArray(factureIds) || factureIds.length === 0) {
+            console.log('[DEBUG] Aucun ID de facture valide reçu');
+            return {};
+        }
     
+        try {
+            // 1. Placeholder dynamique
+            const placeholders = factureIds.map(() => '?').join(', ');
+        
+            // 2. Exécution de la requête
+            const [rows, fields] = await db.query(
+                `
+                SELECT 
+                    pm.id AS payment_method_id,
+                    pm.facture_id,
+                    pm.method,
+                    i.id AS installment_id,
+                    i.amount,
+                    i.date,
+                    i.pdf_file
+                FROM payment_methods pm
+                LEFT JOIN installments i ON pm.id = i.payment_method_id
+                WHERE pm.facture_id IN (${placeholders})
+                ORDER BY pm.facture_id, pm.method, i.date
+                `,
+                factureIds
+            );
+
+        
+            // 3. Gestion du format du résultat
+            console.log('[DEBUG] Résultats bruts:', rows);
+        
+            if (!Array.isArray(rows)) {
+                console.warn('[WARN] Aucune ligne retournée sous forme de tableau.');
+                return {};
+            }
+        
+            // 4. Transformation des résultats
+            const paymentsByInvoice = {};
+        
+            rows.forEach(row => {
+                if (!row.facture_id) return;
+        
+                if (!paymentsByInvoice[row.facture_id]) {
+                    paymentsByInvoice[row.facture_id] = [];
+                }
+        
+                let paymentMethod = paymentsByInvoice[row.facture_id]
+                    .find(pm => pm.method === row.method);
+        
+                if (!paymentMethod) {
+                    paymentMethod = {
+                        method: row.method,
+                        installments: []
+                    };
+                    paymentsByInvoice[row.facture_id].push(paymentMethod);
+                }
+        
+                if (row.installment_id) {
+                    paymentMethod.installments.push({
+                        amount: row.amount ? Number(row.amount).toFixed(2) : '0.00',
+                        date: row.date || null,
+                        pdf_file: row.pdf_file || null
+                    });
+                }
+            });
+        
+            console.log('[DEBUG] Résultats transformés:', paymentsByInvoice);
+            return paymentsByInvoice;
+        
+        } catch (error) {
+            console.error('[ERREUR] Détails:', {
+                message: error.message,
+                sql: error.sql,
+                stack: error.stack
+            });
+            return {};
+        }
+    }
     
     static async deleteFacture(req, res) {
         const factureId = parseInt(req.params.id, 10);
@@ -229,7 +310,12 @@ class FactureController {
     }
     
     static async createFactureWithClient(req, res) {
-        const { client, produits, saleType, saleMode, deliveryProvider, deliveryPrice, deliveryCode, installmentRemark, paymentMethods, comment } = req.body;
+
+        const data = req.headers['content-type']?.includes('multipart/form-data')
+        ? JSON.parse(req.body.data) // Si form-data
+        : req.body; // Si JSON
+
+        const { client, produits, saleType, saleMode, deliveryProvider, deliveryPrice, deliveryCode, installmentRemark, paymentMethods, comment } = data;
         let conn;
     
         if (!client?.nom || !Array.isArray(produits) || produits.length === 0) {
