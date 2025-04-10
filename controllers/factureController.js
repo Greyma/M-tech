@@ -2,95 +2,208 @@ const db = require('../config/db');
 const { generateBarcode, decodeBarcode } = require('./barcode');
 
 async function generateFactureId() {
-  const prefix = 'FAC';
-  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+    const prefix = 'FAC';
+    const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+    let conn;
+  
+    try {
+      conn = await db.getConnection();
+      
+      const [rows] = await conn.execute(
+        'SELECT COUNT(*) AS count FROM factures WHERE id LIKE ?',
+        [`${prefix}${datePart}%`]
+      );
+  
+      const count = (rows[0]?.count || 0) + 1;
+      const countPart = String(count).padStart(4, '0');
+  
+      return `${prefix}${datePart}${countPart}`;
+    } catch (error) {
+      console.error('Erreur lors de la génération de l\'ID de facture:', error);
+      
+      // Fallback en cas d'erreur avec la base de données
+      const randomPart = Math.floor(Math.random() * 9000 + 1000).toString();
+      return `${prefix}${datePart}${randomPart}`;
+    } finally {
+      if (conn) conn.release();
+    }
+  }
 
-  const [rows] = await db.execute(
-    'SELECT COUNT(*) AS count FROM factures WHERE id LIKE ?',
-    [`${prefix}${datePart}%`]
-  );
-
-  const count = rows[0].count + 1;
-  const countPart = String(count).padStart(4, '0');
-
-  const factureId = `${prefix}${datePart}${countPart}`;
-  return factureId;
-}
 class FactureController {
+    
+    
     static async getAllFactures(req, res) {
         try {
-          await db.testConnection();      
-          const factures = await db.query(`
-            SELECT 
-              f.id AS facture_id,
-              c.nom AS nom_client,
-              c.email AS email_client,
-              c.telephone AS telephone_client,
-              c.wilaya AS wilaya_client,
-              c.recommendation AS recommendation_client,
-              f.prix_total,
-              f.date_creation,
-              p.id AS produit_id,
-              p.nom AS produit_nom,
-              af.prix AS produit_prix_vente,
-              p.prix_vente AS produit_prix_original,
-              af.quantite AS produit_quantite,
-              af.code_garantie,
-              af.duree_garantie
-            FROM factures f
-            LEFT JOIN clients c ON f.client_id = c.id
-            LEFT JOIN articles_facture af ON f.id = af.facture_id
-            LEFT JOIN produits p ON af.produit_id = p.id
-            ORDER BY f.date_creation DESC
-          `);
-          
-          // Si db.query retourne [rows, fields], déstructurer ici
-          const rows = Array.isArray(factures[0]) ? factures[0] : factures;
-          
-          if (!rows?.length) {
-            return FactureController.handleNotFound(res, "Aucune facture trouvée");
-          }
-      
-          const facturesMap = rows.reduce((acc, row) => {
-            const factureId = row.facture_id;
+            await db.testConnection();
             
-            if (!acc[factureId]) {
-              acc[factureId] = { 
-                id: factureId, 
-                client: {
-                  nom: row.nom_client || 'Client inconnu',
-                  email: row.email_client || null,
-                  telephone: row.telephone_client || null,
-                  wilaya: row.wilaya_client || null,
-                  recommendation: row.recommendation_client || null 
-                },
-                prix_total: Number(row.prix_total || 0).toFixed(2),
-                date_creation: row.date_creation, 
-                produits: [] 
-              };
+            // Requête principale pour les informations de base des factures
+            const factures = await db.query(`
+                SELECT 
+                    f.id AS facture_id,
+                    c.nom AS nom_client,
+                    c.email AS email_client,
+                    c.telephone AS telephone_client,
+                    c.wilaya AS wilaya_client,
+                    c.recommendation AS recommandation_client,
+                    f.prix_total,
+                    f.date_creation,
+                    f.sale_type,
+                    f.sale_mode,
+                    f.delivery_provider,
+                    f.delivery_price,
+                    f.delivery_code,
+                    f.installment_remark,
+                    f.comment,
+                    p.id AS produit_id,
+                    p.nom AS produit_nom,
+                    af.prix AS produit_prix_vente,
+                    p.prix_vente AS produit_prix_original,
+                    af.quantite AS produit_quantite,
+                    af.code_garantie,
+                    af.duree_garantie
+                FROM factures f
+                LEFT JOIN clients c ON f.client_id = c.id
+                LEFT JOIN articles_facture af ON f.id = af.facture_id
+                LEFT JOIN produits p ON af.produit_id = p.id
+                ORDER BY f.date_creation DESC
+            `);
+            
+            const rows = Array.isArray(factures[0]) ? factures[0] : factures;
+            
+            if (!rows?.length) {
+                return FactureController.handleNotFound(res, "Aucune facture trouvée");
             }
-      
-            if (row.produit_id) {
-              acc[factureId].produits.push(FactureController.formatProduitFacture(row));
-            }
-      
-            return acc;
-          }, {});
-          
-          const formattedFactures = Object.values(facturesMap);
-      
-          res.status(200).json({
-            success: true,
-            message: "Factures récupérées avec succès",
-            data: formattedFactures,
-            count: formattedFactures.length
-          });
+    
+             // Récupération des méthodes de paiement pour toutes les factures
+            const factureIds = [...new Set(rows.map(row => row.facture_id))];
+            const payments = await FactureController.getPaymentsForInvoices(db, factureIds);
+
+        
+            const facturesMap = rows.reduce((acc, row) => {
+                const factureId = row.facture_id;
+                
+                if (!acc[factureId]) {
+                    acc[factureId] = { 
+                        id: factureId, 
+                        client: {
+                            nom: row.nom_client || 'Client inconnu',
+                            email: row.email_client || null,
+                            telephone: row.telephone_client || null,
+                            wilaya: row.wilaya_client || null,
+                            recommandation: row.recommandation_client || null 
+                        },
+                        prix_total: Number(row.prix_total || 0).toFixed(2),
+                        date_creation: row.date_creation,
+                        sale_type: row.sale_type || 'comptoir',
+                        sale_mode: row.sale_mode || 'direct',
+                        delivery: {
+                            provider: row.delivery_provider,
+                            price: row.delivery_price ? Number(row.delivery_price).toFixed(2) : null,
+                            code: row.delivery_code
+                        },
+                        installment_remark: row.installment_remark,
+                        comment: row.comment,
+                        payment_methods: payments[factureId] || [],
+                        produits: [] 
+                    };
+                }
+    
+                if (row.produit_id) {
+                    acc[factureId].produits.push(FactureController.formatProduitFacture(row));
+                }
+    
+                return acc;
+            }, {});
+            
+            const formattedFactures = Object.values(facturesMap);
+    
+            res.status(200).json({
+                success: true,
+                message: "Factures récupérées avec succès",
+                data: formattedFactures,
+                count: formattedFactures.length
+            });
         } catch (err) {
-          console.error("Erreur lors de la récupération des factures:", err);
-          FactureController.handleServerError(res, err, "récupération des factures");
+            console.error("Erreur lors de la récupération des factures:", err);
+            FactureController.handleServerError(res, err, "récupération des factures");
         }
-      }
-          
+    }
+    
+    static async getPaymentsForInvoices(db, factureIds) {
+        
+        await db.testConnection();
+        
+        if (!factureIds || !Array.isArray(factureIds) || factureIds.length === 0) {
+            console.log('Aucun ID de facture fourni');
+            return {};
+        }
+    
+        try {
+              // 1. Récupération des méthodes de paiement
+            const [paymentMethods] = await db.query(`
+                SELECT pm.id, pm.facture_id, pm.method
+                FROM payment_methods pm
+                WHERE pm.facture_id IN (?)
+            `, [factureIds]);
+    
+            console.log('Méthodes de paiement trouvées:', paymentMethods);
+            
+            if (!paymentMethods || paymentMethods.length === 0) {
+                console.log('Aucune méthode de paiement trouvée');
+                return {};
+            }
+    
+            // 2. Récupération des versements
+            const methodIds = paymentMethods.map(pm => pm.id);
+            console.log('IDs de méthodes à rechercher:', methodIds);
+            
+            const [installments] = await db.query(`
+                SELECT i.payment_method_id, i.amount, i.date, i.pdf_file
+                FROM installments i
+                WHERE i.payment_method_id IN (?)
+                ORDER BY i.date ASC
+            `, [methodIds]);
+    
+            console.log('Versements trouvés:', installments);
+            
+            // 3. Organisation des données
+            const paymentsByInvoice = {};
+            
+            for (const pm of paymentMethods) {
+                if (!pm.facture_id) {
+                    console.log('Méthode de paiement sans facture_id:', pm);
+                    continue;
+                }
+                
+                if (!paymentsByInvoice[pm.facture_id]) {
+                    paymentsByInvoice[pm.facture_id] = [];
+                }
+                
+                const methodInstallments = (installments || [])
+                    .filter(i => i && i.payment_method_id === pm.id)
+                    .map(i => ({
+                        amount: i.amount ? Number(i.amount).toFixed(2) : '0.00',
+                        date: i.date || null,
+                        pdf_file: i.pdf_file || null
+                    }));
+                
+                paymentsByInvoice[pm.facture_id].push({
+                    method: pm.method || 'inconnu',
+                    installments: methodInstallments
+                });
+            }
+    
+            console.log('Données de paiement organisées:', paymentsByInvoice);
+            return paymentsByInvoice;
+        } catch (error) {
+            console.error("Erreur détaillée lors de la récupération des paiements:", {
+                error,
+                stack: error.stack
+            });
+            return {};
+        }
+    }
+
     static async deleteFacture(req, res) {
         const factureId = parseInt(req.params.id, 10);
         let conn;
@@ -130,44 +243,70 @@ class FactureController {
         }
     }
 
-    static async creerFacture(conn, client_id, prix_total) {
-        const id = generateFactureId();
-        const [result] = await conn.query(
-            "INSERT INTO factures (id,client_id, prix_total) VALUES (?,?, ?)", 
-            [id,client_id, prix_total]
-        );
-        return result.insertId;
-    }
-
-    static handleNotFound(res, message = "Ressource non trouvée") {
-        return res.status(404).json({
-            success: false,
-            message,
-            data: []
-        });
-    }
-
-    static handleClientError(res, message, statusCode = 400) {
-        return res.status(statusCode).json({
-            success: false,
-            message
-        });
+    static async creerFacture(conn, factureData) {
+        const id = await generateFactureId();
+        const query = `
+            INSERT INTO factures (
+                id, client_id, prix_total, sale_type, sale_mode, 
+                delivery_provider, delivery_price, delivery_code, 
+                installment_remark, comment
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        
+        const params = [
+            id,
+            factureData.client_id,
+            factureData.prix_total,
+            factureData.sale_type || 'comptoir',
+            factureData.sale_mode || 'direct',
+            factureData.delivery_provider || null,
+            factureData.delivery_price || 0,
+            factureData.delivery_code || null,
+            factureData.installment_remark || null,
+            factureData.comment || null
+        ];
+    
+        try {
+            const [result] = await conn.query(query, params);
+            return { factureId: id, insertId: result.insertId };
+        } catch (error) {
+            console.error('Erreur lors de la création de la facture:', {
+                query,
+                params,
+                error
+            });
+            throw error;
+        }
     }
     
-    static handleServerError(res, error, context = "") {
-        return res.status(500).json({ 
-            success: false,
-            message: `Erreur serveur${context ? ` lors de la ${context}` : ''}`,
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+    static async ajouterMethodesPaiement(conn, factureId, paymentMethods) {
+        for (const method of paymentMethods) {
+            const [methodResult] = await conn.query(
+                "INSERT INTO payment_methods (facture_id, method) VALUES (?, ?)",
+                [factureId, method.method]
+            );
+            
+            if (method.installments && method.installments.length > 0) {
+                for (const installment of method.installments) {
+                    await conn.query(
+                        "INSERT INTO installments (payment_method_id, amount, date, pdf_file) VALUES (?, ?, ?, ?)",
+                        [
+                            methodResult.insertId,
+                            installment.amount,
+                            installment.date || null,
+                            installment.pdfFile || null
+                        ]
+                    );
+                }
+            }
+        }
     }
-
-
+    
     static async createFactureWithClient(req, res) {
-        const { client, produits } = req.body;
+        const { client, produits, saleType, saleMode, deliveryProvider, deliveryPrice, deliveryCode, installmentRemark, paymentMethods, comment } = req.body;
         let conn;
     
-        if (!client?.nom || !Array.isArray(produits) || produits.length === 0) {
+        if (!client?.nomComplet || !Array.isArray(produits) || produits.length === 0) {
             return FactureController.handleClientError(
                 res, 
                 "Un client (avec au moins un nom) et une liste de produits non vide sont requis"
@@ -182,11 +321,11 @@ class FactureController {
             const [clientResult] = await conn.query(
                 "INSERT INTO clients (nom, email, telephone, wilaya, recommendation) VALUES (?, ?, ?, ?, ?)",
                 [
-                    client.nom,
+                    client.nomComplet,
                     client.email || null,
                     client.telephone || null,
                     client.wilaya || null,
-                    client.recommendation || null
+                    client.recommandation || null
                 ]
             );
     
@@ -201,17 +340,37 @@ class FactureController {
                 return FactureController.handleClientError(res, errors.join(' '));
             }
     
-            // 3. Création de la facture
-            const factureId = await FactureController.creerFacture(conn, clientId, prix_total);
+            // 3. Création de la facture avec les nouvelles données
+            const factureData = {
+                client_id: clientId,
+                prix_total: prix_total,
+                sale_type: saleType || 'comptoir',
+                sale_mode: saleMode || 'direct',
+                delivery_provider: deliveryProvider,
+                delivery_price: deliveryPrice || 0,
+                delivery_code: deliveryCode,
+                installment_remark: installmentRemark,
+                comment: comment
+            };
+    
+            const { factureId } = await FactureController.creerFacture(conn, factureData);
             
-            // 4. Ajout des articles et mise à jour du stock
+            // 4. Ajout des méthodes de paiement
+            if (paymentMethods && paymentMethods.length > 0) {
+                await FactureController.ajouterMethodesPaiement(conn, factureId, paymentMethods);
+            }
+    
+            // 5. Ajout des articles et mise à jour du stock
             await FactureController.ajouterArticlesFacture(conn, factureId, produitsVerifies);
             await FactureController.mettreAJourStocks(conn, produitsVerifies);
     
             await conn.commit();
             
-            // Récupération du nom du client pour la réponse
-            const clientNom = client.nom;
+            // Récupération des détails de la facture
+            const [factureDetails] = await conn.query(
+                "SELECT date_creation FROM factures WHERE id = ?", 
+                [factureId]
+            );
     
             res.status(201).json({ 
                 success: true,
@@ -219,10 +378,13 @@ class FactureController {
                 data: { 
                     facture_id: factureId, 
                     client_id: clientId,
-                    nom_client: clientNom, 
+                    nom_client: client.nomComplet, 
                     prix_total: Number(prix_total).toFixed(2), 
                     produits: produitsVerifies,
-                    date_creation: new Date()
+                    date_creation: factureDetails[0].date_creation,
+                    sale_type: saleType,
+                    sale_mode: saleMode,
+                    payment_methods: paymentMethods || []
                 } 
             });
     
@@ -234,9 +396,9 @@ class FactureController {
             if (conn) conn.release();
         }
     }
-
+    
     static async createFacture(req, res) {
-        const { client_id, produits } = req.body; // Retirer 'prix' car il est maintenant dans chaque produit
+        const { client_id, produits, saleType, saleMode, deliveryProvider, deliveryPrice, deliveryCode, installmentRemark, paymentMethods, comment } = req.body;
         let conn;
     
         if (!client_id || isNaN(client_id) || !Array.isArray(produits) || produits.length === 0) {
@@ -272,15 +434,38 @@ class FactureController {
                 return FactureController.handleClientError(res, errors.join(' '));
             }
     
-            // Création de la facture
-            const factureId = await FactureController.creerFacture(conn, client_id, prix_total);
+            // Création de la facture avec les nouvelles données
+            const factureData = {
+                client_id: client_id,
+                prix_total: prix_total,
+                sale_type: saleType || 'comptoir',
+                sale_mode: saleMode || 'direct',
+                delivery_provider: deliveryProvider,
+                delivery_price: deliveryPrice || 0,
+                delivery_code: deliveryCode,
+                installment_remark: installmentRemark,
+                comment: comment
+            };
+    
+            const { factureId } = await FactureController.creerFacture(conn, factureData);
             
+            // Ajout des méthodes de paiement
+            if (paymentMethods && paymentMethods.length > 0) {
+                await FactureController.ajouterMethodesPaiement(conn, factureId, paymentMethods);
+            }
+    
             // Ajout des articles et mise à jour du stock
             await FactureController.ajouterArticlesFacture(conn, factureId, produitsVerifies);
             await FactureController.mettreAJourStocks(conn, produitsVerifies);
     
             await conn.commit();
             
+            // Récupération des détails de la facture
+            const [factureDetails] = await conn.query(
+                "SELECT date_creation FROM factures WHERE id = ?", 
+                [factureId]
+            );
+    
             res.status(201).json({ 
                 success: true,
                 message: "Facture créée avec succès", 
@@ -289,7 +474,10 @@ class FactureController {
                     nom_client: clientNom, 
                     prix_total: Number(prix_total).toFixed(2), 
                     produits: produitsVerifies,
-                    date_creation: new Date()
+                    date_creation: factureDetails[0].date_creation,
+                    sale_type: saleType,
+                    sale_mode: saleMode,
+                    payment_methods: paymentMethods || []
                 } 
             });
     
@@ -473,6 +661,38 @@ class FactureController {
             code_garantie: row.code_garantie,
             duree_garantie: row.duree_garantie
         };
+    }
+
+
+
+
+
+
+
+
+
+    
+    static handleNotFound(res, message = "Ressource non trouvée") {
+        return res.status(404).json({
+            success: false,
+            message,
+            data: []
+        });
+    }
+
+    static handleClientError(res, message, statusCode = 400) {
+        return res.status(statusCode).json({
+            success: false,
+            message
+        });
+    }
+    
+    static handleServerError(res, error, context = "") {
+        return res.status(500).json({ 
+            success: false,
+            message: `Erreur serveur${context ? ` lors de la ${context}` : ''}`,
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 
 }

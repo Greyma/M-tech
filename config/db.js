@@ -121,6 +121,13 @@ const databaseSchema = {
                     client_id INT NOT NULL,
                     prix_total DECIMAL(10,2) NOT NULL,
                     date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    sale_type ENUM('livraison', 'comptoir') NOT NULL,
+                    sale_mode ENUM('versement', 'direct') NOT NULL,
+                    delivery_provider VARCHAR(50) NULL,
+                    delivery_price DECIMAL(10,2) DEFAULT 0,
+                    delivery_code VARCHAR(50) NULL,
+                    installment_remark TEXT NULL,
+                    comment TEXT NULL,
                     FOREIGN KEY (client_id) REFERENCES clients(id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             `
@@ -132,12 +139,36 @@ const databaseSchema = {
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     facture_id VARCHAR(20) NOT NULL,
                     produit_id INT NOT NULL,
-                    prix INT NOT NULL,
+                    prix DECIMAL(10,2) NOT NULL,
                     quantite INT NOT NULL,
                     code_garantie VARCHAR(50) NULL DEFAULT NULL,
                     duree_garantie VARCHAR(50) NULL DEFAULT NULL,
                     FOREIGN KEY (facture_id) REFERENCES factures(id) ON DELETE CASCADE,
                     FOREIGN KEY (produit_id) REFERENCES produits(id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `
+        },
+        {
+            name: 'payment_methods',
+            schema: `
+                CREATE TABLE IF NOT EXISTS payment_methods (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    facture_id VARCHAR(20) NOT NULL,
+                    method ENUM('cash', 'ccp', 'yalidine', 'carte', 'autre') NOT NULL,
+                    FOREIGN KEY (facture_id) REFERENCES factures(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `
+        },
+        {
+            name: 'installments',
+            schema: `
+                CREATE TABLE IF NOT EXISTS installments (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    payment_method_id INT NOT NULL,
+                    amount DECIMAL(10,2) NOT NULL,
+                    date DATE NULL,
+                    pdf_file VARCHAR(255) NULL,
+                    FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             `
         }
@@ -155,15 +186,12 @@ async function initializeDatabase() {
              CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
         );
         
-        console.log(`✅ Base de données ${databaseSchema.database} vérifiée/créée`);
-        
         // Utiliser la base de données (avec échappement)
         await adminConn.query(`USE ${dbName}`);
         
         // Créer les tables
         for (const table of databaseSchema.tables) {
             await adminConn.query(table.schema);
-            console.log(`✅ Table ${table.name} vérifiée/créée`);
         }
     } catch (error) {
         console.error('❌ Erreur lors de l\'initialisation de la base:', error.message);
