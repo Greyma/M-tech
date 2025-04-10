@@ -76,7 +76,7 @@ class FactureController {
     
              // Récupération des méthodes de paiement pour toutes les factures
             const factureIds = [...new Set(rows.map(row => row.facture_id))];
-            const payments = await FactureController.getPaymentsForInvoices(db, factureIds);
+            const payments = await FactureController.getPaymentsForInvoices(factureIds);
 
         
             const facturesMap = rows.reduce((acc, row) => {
@@ -129,81 +129,7 @@ class FactureController {
         }
     }
     
-    static async getPaymentsForInvoices(db, factureIds) {
-        
-        await db.testConnection();
-        
-        if (!factureIds || !Array.isArray(factureIds) || factureIds.length === 0) {
-            console.log('Aucun ID de facture fourni');
-            return {};
-        }
     
-        try {
-              // 1. Récupération des méthodes de paiement
-            const [paymentMethods] = await db.query(`
-                SELECT pm.id, pm.facture_id, pm.method
-                FROM payment_methods pm
-                WHERE pm.facture_id IN (?)
-            `, [factureIds]);
-    
-            console.log('Méthodes de paiement trouvées:', paymentMethods);
-            
-            if (!paymentMethods || paymentMethods.length === 0) {
-                console.log('Aucune méthode de paiement trouvée');
-                return {};
-            }
-    
-            // 2. Récupération des versements
-            const methodIds = paymentMethods.map(pm => pm.id);
-            console.log('IDs de méthodes à rechercher:', methodIds);
-            
-            const [installments] = await db.query(`
-                SELECT i.payment_method_id, i.amount, i.date, i.pdf_file
-                FROM installments i
-                WHERE i.payment_method_id IN (?)
-                ORDER BY i.date ASC
-            `, [methodIds]);
-    
-            console.log('Versements trouvés:', installments);
-            
-            // 3. Organisation des données
-            const paymentsByInvoice = {};
-            
-            for (const pm of paymentMethods) {
-                if (!pm.facture_id) {
-                    console.log('Méthode de paiement sans facture_id:', pm);
-                    continue;
-                }
-                
-                if (!paymentsByInvoice[pm.facture_id]) {
-                    paymentsByInvoice[pm.facture_id] = [];
-                }
-                
-                const methodInstallments = (installments || [])
-                    .filter(i => i && i.payment_method_id === pm.id)
-                    .map(i => ({
-                        amount: i.amount ? Number(i.amount).toFixed(2) : '0.00',
-                        date: i.date || null,
-                        pdf_file: i.pdf_file || null
-                    }));
-                
-                paymentsByInvoice[pm.facture_id].push({
-                    method: pm.method || 'inconnu',
-                    installments: methodInstallments
-                });
-            }
-    
-            console.log('Données de paiement organisées:', paymentsByInvoice);
-            return paymentsByInvoice;
-        } catch (error) {
-            console.error("Erreur détaillée lors de la récupération des paiements:", {
-                error,
-                stack: error.stack
-            });
-            return {};
-        }
-    }
-
     static async deleteFacture(req, res) {
         const factureId = parseInt(req.params.id, 10);
         let conn;
@@ -306,7 +232,7 @@ class FactureController {
         const { client, produits, saleType, saleMode, deliveryProvider, deliveryPrice, deliveryCode, installmentRemark, paymentMethods, comment } = req.body;
         let conn;
     
-        if (!client?.nomComplet || !Array.isArray(produits) || produits.length === 0) {
+        if (!client?.nom || !Array.isArray(produits) || produits.length === 0) {
             return FactureController.handleClientError(
                 res, 
                 "Un client (avec au moins un nom) et une liste de produits non vide sont requis"
@@ -321,7 +247,7 @@ class FactureController {
             const [clientResult] = await conn.query(
                 "INSERT INTO clients (nom, email, telephone, wilaya, recommendation) VALUES (?, ?, ?, ?, ?)",
                 [
-                    client.nomComplet,
+                    client.nom,
                     client.email || null,
                     client.telephone || null,
                     client.wilaya || null,
@@ -378,7 +304,7 @@ class FactureController {
                 data: { 
                     facture_id: factureId, 
                     client_id: clientId,
-                    nom_client: client.nomComplet, 
+                    nom_client: client.nom, 
                     prix_total: Number(prix_total).toFixed(2), 
                     produits: produitsVerifies,
                     date_creation: factureDetails[0].date_creation,
