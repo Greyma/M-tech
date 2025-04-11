@@ -286,22 +286,41 @@ class FactureController {
         }
     }
     
+    
     static async createFactureWithClient(req, res) {
-
-        const data = req.headers['content-type']?.includes('multipart/form-data')
-        ? JSON.parse(req.body.data) // Si form-data
-        : req.body; // Si JSON
-
-        const { client, produits, saleType, saleMode, deliveryProvider, deliveryPrice, deliveryCode, installmentRemark, paymentMethods, comment } = data;
+        console.log('[DEBUG] Début de createFactureWithClient');
+        console.log('[DEBUG] Headers:', req.headers);
+        console.log('[DEBUG] Body brut:', req.body);
+    
+        let client, produits, paymentMethods;
+        try {
+            // Parser les champs individuels s'ils sont envoyés comme JSON
+            client = req.body.client ? JSON.parse(req.body.client) : {};
+            produits = req.body.produits ? JSON.parse(req.body.produits) : [];
+            paymentMethods = req.body.paymentMethods ? JSON.parse(req.body.paymentMethods) : [];
+        } catch (parseError) {
+            console.error('[ERREUR] Échec du parsing des champs FormData:', parseError);
+            return FactureController.handleClientError(res, "Champs FormData invalides ou mal formés");
+        }
+    
+        const saleType = req.body.saleType || 'comptoir';
+        const saleMode = req.body.saleMode || 'direct';
+        const deliveryProvider = req.body.deliveryProvider || null;
+        const deliveryPrice = req.body.deliveryPrice || 0;
+        const deliveryCode = req.body.deliveryCode || null;
+        const installmentRemark = req.body.installmentRemark || null;
+        const comment = req.body.comment || null;
+    
         let conn;
     
         if (!client?.nom || !Array.isArray(produits) || produits.length === 0) {
+            console.log('[DEBUG] Validation échouée:', { client, produits });
             return FactureController.handleClientError(
-                res, 
+                res,
                 "Un client (avec au moins un nom) et une liste de produits non vide sont requis"
             );
         }
-    
+        
         try {
             conn = await db.getConnection();
             await conn.beginTransaction();
