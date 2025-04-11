@@ -85,6 +85,7 @@ class FactureController {
                         pm.id AS payment_method_id,
                         pm.facture_id,
                         pm.method,
+                        pm.status, 
                         i.id AS installment_id,
                         i.amount,
                         i.date,
@@ -96,6 +97,8 @@ class FactureController {
                     `,
                     factureIds
                 );
+
+                
                 
                 const normalizedRows = Array.isArray(payment_methods) ? payment_methods : payment_methods ? [payment_methods] : [];
         
@@ -118,6 +121,7 @@ class FactureController {
                     if (!paymentMethod) {
                         paymentMethod = {
                             method: row.method,
+                            status: row.status || 'en cours', // Inclure le statut
                             installments: []
                         };
                         paymentsByInvoice[row.facture_id].push(paymentMethod);
@@ -187,6 +191,42 @@ class FactureController {
             FactureController.handleServerError(res, err, "récupération des factures");
         }
     }
+
+
+            // Nouvelle méthode pour mettre à jour le statut de paiement
+        static async updatePaymentStatus(conn, paymentMethodId) {
+            // Récupérer le total de la facture associée
+            const [paymentData] = await conn.query(`
+                SELECT f.prix_total, pm.method, 
+                    SUM(i.amount) as paid_amount
+                FROM payment_methods pm
+                JOIN factures f ON pm.facture_id = f.id
+                LEFT JOIN installments i ON pm.id = i.payment_method_id
+                WHERE pm.id = ?
+                GROUP BY pm.id
+            `, [paymentMethodId]);
+            
+            if (!paymentData.length) return;
+            
+            const { prix_total, method, paid_amount } = paymentData[0];
+            const totalPaid = parseFloat(paid_amount || 0);
+            const totalAmount = parseFloat(prix_total);
+            
+            let newStatus = 'pending';
+            
+            if (method === 'cash' && totalPaid >= totalAmount) {
+                newStatus = 'completed';
+            } else if (totalPaid >= totalAmount) {
+                newStatus = 'completed';
+            } else if (totalPaid > 0) {
+                newStatus = 'partial';
+            }
+            
+            await conn.query(
+                "UPDATE payment_methods SET status = ? WHERE id = ?",
+                [newStatus, paymentMethodId]
+            );
+        }
 
     static async deleteFacture(req, res) {
         const factureId = parseInt(req.params.id, 10);
@@ -266,8 +306,12 @@ class FactureController {
     static async ajouterMethodesPaiement(conn, factureId, paymentMethods) {
         for (const method of paymentMethods) {
             const [methodResult] = await conn.query(
-                "INSERT INTO payment_methods (facture_id, method) VALUES (?, ?)",
-                [factureId, method.method]
+                "INSERT INTO payment_methods (facture_id, method, status) VALUES (?, ?, ?)",
+                [
+                    factureId, 
+                    method.method,
+                    method.status || 'pending' // Nouveau champ status
+                ]
             );
             
             if (method.installments && method.installments.length > 0) {
@@ -282,15 +326,40 @@ class FactureController {
                         ]
                     );
                 }
+                 // Mettre à jour le statut si des versements sont ajoutés
+                await this.updatePaymentStatus(conn, methodResult.insertId);
             }
         }
     }
     
+
+    static async getFacturePaymentStatus(conn, factureId) {
+        const [results] = await conn.query(`
+            SELECT 
+                SUM(i.amount) as total_paid,
+                f.prix_total as total_amount,
+                GROUP_CONCAT(pm.status) as statuses
+            FROM factures f
+            LEFT JOIN payment_methods pm ON f.id = pm.facture_id
+            LEFT JOIN installments i ON pm.id = i.payment_method_id
+            WHERE f.id = ?
+            GROUP BY f.id
+        `, [factureId]);
     
-    static async createFactureWithClient(req, res) {    
+        if (!results.length) return 'pending';
+    
+        const { total_paid, total_amount, statuses } = results[0];
+        const paid = parseFloat(total_paid || 0);
+        const total = parseFloat(total_amount);
+    
+        if (paid >= total) return 'validé';
+        if (paid > 0) return 'retour';
+        return 'en cours';
+    }
+    
+    static async createFactureWithClient(req, res) {
         let client, produits, paymentMethods;
         try {
-            // Parser les champs individuels s'ils sont envoyés comme JSON
             client = req.body.client ? JSON.parse(req.body.client) : {};
             produits = req.body.produits ? JSON.parse(req.body.produits) : [];
             paymentMethods = req.body.paymentMethods ? JSON.parse(req.body.paymentMethods) : [];
@@ -298,7 +367,7 @@ class FactureController {
             console.error('[ERREUR] Échec du parsing des champs FormData:', parseError);
             return FactureController.handleClientError(res, "Champs FormData invalides ou mal formés");
         }
-    
+
         const saleType = req.body.saleType || 'comptoir';
         const saleMode = req.body.saleMode || 'direct';
         const deliveryProvider = req.body.deliveryProvider || null;
@@ -306,7 +375,7 @@ class FactureController {
         const deliveryCode = req.body.deliveryCode || null;
         const installmentRemark = req.body.installmentRemark || null;
         const comment = req.body.comment || null;
-    
+
         let conn;
     
         if (!client?.nom || !Array.isArray(produits) || produits.length === 0) {
@@ -593,6 +662,9 @@ class FactureController {
             );
         }));
     }
+
+
+    
 
     static async recupererArticlesFacture(conn, factureId) {
         if (!factureId) throw new Error("Facture ID invalide");
