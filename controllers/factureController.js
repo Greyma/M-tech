@@ -31,12 +31,10 @@ async function generateFactureId() {
 
 class FactureController {
     
-    
     static async getAllFactures(req, res) {
         try {
             await db.testConnection();
             
-            // Requête principale pour les informations de base des factures
             const factures = await db.query(`
                 SELECT 
                     f.id AS facture_id,
@@ -67,150 +65,129 @@ class FactureController {
                 LEFT JOIN produits p ON af.produit_id = p.id
                 ORDER BY f.date_creation DESC
             `);
-            
+        
             const rows = Array.isArray(factures[0]) ? factures[0] : factures;
             
             if (!rows?.length) {
                 return FactureController.handleNotFound(res, "Aucune facture trouvée");
             }
     
-             // Récupération des méthodes de paiement pour toutes les factures
             const factureIds = [...new Set(rows.map(row => row.facture_id))];
-            const payments = await FactureController.getPaymentsForInvoices(factureIds);
-
-        
-            const facturesMap = rows.reduce((acc, row) => {
-                const factureId = row.facture_id;
-                
-                if (!acc[factureId]) {
-                    acc[factureId] = { 
-                        id: factureId, 
-                        client: {
-                            nom: row.nom_client || 'Client inconnu',
-                            email: row.email_client || null,
-                            telephone: row.telephone_client || null,
-                            wilaya: row.wilaya_client || null,
-                            recommandation: row.recommandation_client || null 
-                        },
-                        prix_total: Number(row.prix_total || 0).toFixed(2),
-                        date_creation: row.date_creation,
-                        sale_type: row.sale_type || 'comptoir',
-                        sale_mode: row.sale_mode || 'direct',
-                        delivery: {
-                            provider: row.delivery_provider,
-                            price: row.delivery_price ? Number(row.delivery_price).toFixed(2) : null,
-                            code: row.delivery_code
-                        },
-                        installment_remark: row.installment_remark,
-                        comment: row.comment,
-                        payment_methods: payments[factureId] || [],
-                        produits: [] 
-                    };
-                }
-    
-                if (row.produit_id) {
-                    acc[factureId].produits.push(FactureController.formatProduitFacture(row));
-                }
-    
-                return acc;
-            }, {});
+           
+            const placeholders = factureIds.map(() => '?').join(', ');
             
-            const formattedFactures = Object.values(facturesMap);
-    
-            res.status(200).json({
-                success: true,
-                message: "Factures récupérées avec succès",
-                data: formattedFactures,
-                count: formattedFactures.length
-            });
+            // Utiliser une connexion explicite
+            const connection = await db.pool.getConnection();
+            try {
+                const [payment_methods, fields] = await connection.execute(
+                    `
+                    SELECT 
+                        pm.id AS payment_method_id,
+                        pm.facture_id,
+                        pm.method,
+                        i.id AS installment_id,
+                        i.amount,
+                        i.date,
+                        i.pdf_file
+                    FROM payment_methods pm
+                    LEFT JOIN installments i ON pm.id = i.payment_method_id
+                    WHERE pm.facture_id IN (${placeholders})
+                    ORDER BY pm.facture_id, pm.method, i.date
+                    `,
+                    factureIds
+                );
+                
+                const normalizedRows = Array.isArray(payment_methods) ? payment_methods : payment_methods ? [payment_methods] : [];
+        
+                if (!normalizedRows.length) {
+                    console.warn('[WARN] Aucune méthode de paiement trouvée.');
+                }
+        
+                const paymentsByInvoice = {};
+        
+                normalizedRows.forEach(row => {
+                    if (!row.facture_id) return;
+        
+                    if (!paymentsByInvoice[row.facture_id]) {
+                        paymentsByInvoice[row.facture_id] = [];
+                    }
+        
+                    let paymentMethod = paymentsByInvoice[row.facture_id]
+                        .find(pm => pm.method === row.method);
+        
+                    if (!paymentMethod) {
+                        paymentMethod = {
+                            method: row.method,
+                            installments: []
+                        };
+                        paymentsByInvoice[row.facture_id].push(paymentMethod);
+                    }
+        
+                    if (row.installment_id) {
+                        paymentMethod.installments.push({
+                            amount: row.amount ? Number(row.amount).toFixed(2) : '0.00',
+                            date: row.date || null,
+                            pdf_file: row.pdf_file || null
+                        });
+                    }
+                });
+        
+                
+                const payments = paymentsByInvoice;
+        
+                const facturesMap = rows.reduce((acc, row) => {
+                    const factureId = row.facture_id;
+                    
+                    if (!acc[factureId]) {
+                        acc[factureId] = { 
+                            id: factureId, 
+                            client: {
+                                nom: row.nom_client || 'Client inconnu',
+                                email: row.email_client || null,
+                                telephone: row.telephone_client || null,
+                                wilaya: row.wilaya_client || null,
+                                recommandation: row.recommandation_client || null 
+                            },
+                            prix_total: Number(row.prix_total || 0).toFixed(2),
+                            date_creation: row.date_creation,
+                            sale_type: row.sale_type || 'comptoir',
+                            sale_mode: row.sale_mode || 'direct',
+                            delivery: {
+                                provider: row.delivery_provider,
+                                price: row.delivery_price ? Number(row.delivery_price).toFixed(2) : null,
+                                code: row.delivery_code
+                            },
+                            installment_remark: row.installment_remark,
+                            comment: row.comment,
+                            payment_methods: payments[factureId] || [],
+                            produits: [] 
+                        };
+                    }
+        
+                    if (row.produit_id) {
+                        acc[factureId].produits.push(FactureController.formatProduitFacture(row));
+                    }
+        
+                    return acc;
+                }, {});
+                
+                const formattedFactures = Object.values(facturesMap);
+        
+                res.status(200).json({
+                    success: true,
+                    message: "Factures récupérées avec succès",
+                    data: formattedFactures,
+                    count: formattedFactures.length
+                });
+            } finally {
+                connection.release();
+            }
         } catch (err) {
             console.error("Erreur lors de la récupération des factures:", err);
             FactureController.handleServerError(res, err, "récupération des factures");
         }
     }
 
-
-    static async getPaymentsForInvoices(factureIds) {
-        if (!factureIds || !Array.isArray(factureIds) || factureIds.length === 0) {
-            console.log('[DEBUG] Aucun ID de facture valide reçu');
-            return {};
-        }
-    
-        try {
-            // 1. Placeholder dynamique
-            const placeholders = factureIds.map(() => '?').join(', ');
-        
-            // 2. Exécution de la requête
-            const [rows, fields] = await db.query(
-                `
-                SELECT 
-                    pm.id AS payment_method_id,
-                    pm.facture_id,
-                    pm.method,
-                    i.id AS installment_id,
-                    i.amount,
-                    i.date,
-                    i.pdf_file
-                FROM payment_methods pm
-                LEFT JOIN installments i ON pm.id = i.payment_method_id
-                WHERE pm.facture_id IN (${placeholders})
-                ORDER BY pm.facture_id, pm.method, i.date
-                `,
-                factureIds
-            );
-
-        
-            // 3. Gestion du format du résultat
-            console.log('[DEBUG] Résultats bruts:', rows);
-        
-            if (!Array.isArray(rows)) {
-                console.warn('[WARN] Aucune ligne retournée sous forme de tableau.');
-                return {};
-            }
-        
-            // 4. Transformation des résultats
-            const paymentsByInvoice = {};
-        
-            rows.forEach(row => {
-                if (!row.facture_id) return;
-        
-                if (!paymentsByInvoice[row.facture_id]) {
-                    paymentsByInvoice[row.facture_id] = [];
-                }
-        
-                let paymentMethod = paymentsByInvoice[row.facture_id]
-                    .find(pm => pm.method === row.method);
-        
-                if (!paymentMethod) {
-                    paymentMethod = {
-                        method: row.method,
-                        installments: []
-                    };
-                    paymentsByInvoice[row.facture_id].push(paymentMethod);
-                }
-        
-                if (row.installment_id) {
-                    paymentMethod.installments.push({
-                        amount: row.amount ? Number(row.amount).toFixed(2) : '0.00',
-                        date: row.date || null,
-                        pdf_file: row.pdf_file || null
-                    });
-                }
-            });
-        
-            console.log('[DEBUG] Résultats transformés:', paymentsByInvoice);
-            return paymentsByInvoice;
-        
-        } catch (error) {
-            console.error('[ERREUR] Détails:', {
-                message: error.message,
-                sql: error.sql,
-                stack: error.stack
-            });
-            return {};
-        }
-    }
-    
     static async deleteFacture(req, res) {
         const factureId = parseInt(req.params.id, 10);
         let conn;
