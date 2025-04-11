@@ -287,11 +287,7 @@ class FactureController {
     }
     
     
-    static async createFactureWithClient(req, res) {
-        console.log('[DEBUG] Début de createFactureWithClient');
-        console.log('[DEBUG] Headers:', req.headers);
-        console.log('[DEBUG] Body brut:', req.body);
-    
+    static async createFactureWithClient(req, res) {    
         let client, produits, paymentMethods;
         try {
             // Parser les champs individuels s'ils sont envoyés comme JSON
