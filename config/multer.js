@@ -2,16 +2,29 @@ const multer = require('multer');
 const path = require('path');
 const FileService = require('../services/fileService');
 
-const storage = multer.diskStorage({
+// Configuration pour les images
+const imageStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    cb(null, 'Uploads/images/');
   },
   filename: (req, file, cb) => {
     cb(null, Date.now() + '-' + file.originalname);
   }
 });
 
-const fileFilter = (req, file, cb) => {
+// Configuration pour les PDFs
+const pdfStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'Uploads/PDFs/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `pdf-${uniqueSuffix}.pdf`);
+  }
+});
+
+// Filtre pour les images
+const imageFileFilter = (req, file, cb) => {
   const fileTypes = /jpeg|jpg|png|webp|gif|bmp|tiff|svg|avif|heic|heif/;
   const mimeTypes = /image\/(jpeg|png|webp|gif|bmp|tiff|svg\+xml|avif|heic|heif)/;
 
@@ -24,13 +37,30 @@ const fileFilter = (req, file, cb) => {
   cb(new Error(`Type de fichier non supporté : ${file.originalname}`));
 };
 
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 15 * 1024 * 1024 }, // Garder 15 Mo comme amélioration
-  fileFilter: fileFilter
+// Filtre pour les PDFs
+const pdfFileFilter = (req, file, cb) => {
+  if (file.mimetype === 'application/pdf') {
+    return cb(null, true);
+  }
+  cb(new Error(`Seul le format PDF est supporté : ${file.originalname}`));
+};
+
+// Multer pour les images
+const uploadImages = multer({
+  storage: imageStorage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 Mo
+  fileFilter: imageFileFilter
 });
 
-const processAndConvert = async (req, res, next) => {
+// Multer pour les PDFs
+const uploadPDFs = multer({
+  storage: pdfStorage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 Mo, ajustable
+  fileFilter: pdfFileFilter
+});
+
+// Middleware pour traiter les images (conversion AVIF)
+const processAndConvertImages = async (req, res, next) => {
   try {
     if (req.files?.length) {
       req.processedFiles = await FileService.convertToAVIF(req.files);
@@ -38,16 +68,35 @@ const processAndConvert = async (req, res, next) => {
         throw new Error('Échec de la conversion des fichiers en AVIF');
       }
     } else {
-      req.processedFiles = []; // Tableau vide si pas de fichiers
+      req.processedFiles = [];
     }
     next();
   } catch (err) {
-    // Fallback : conserver les fichiers originaux si la conversion échoue
     req.processedFiles = req.files?.length ? FileService.processUploadedFiles(req.files) : [];
-    next(); // Continuer même en cas d'erreur pour ne pas bloquer
+    next();
+  }
+};
+
+// Middleware pour traiter les PDFs (pas de conversion)
+const processPDFs = async (req, res, next) => {
+  try {
+    if (req.files?.length) {
+      req.processedFiles = req.files.map(file => ({
+        originalname: file.originalname,
+        filename: file.filename,
+        path: path.join('Uploads/PDFs', file.filename).replace(/\\/g, '/')
+      }));
+    } else {
+      req.processedFiles = [];
+    }
+    next();
+  } catch (err) {
+    req.processedFiles = [];
+    next();
   }
 };
 
 module.exports = {
-  uploadMiddleware: [upload.any(), processAndConvert]
+  uploadImageMiddleware: [uploadImages.any(), processAndConvertImages],
+  uploadPDFMiddleware: [uploadPDFs.any(), processPDFs]
 };

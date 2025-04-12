@@ -1,5 +1,7 @@
 const db = require('../config/db');
 const { generateBarcode, decodeBarcode } = require('./barcode');
+const path = require('path');
+const fs = require('fs').promises;
 
 async function generateFactureId() {
     const prefix = 'FAC';
@@ -193,6 +195,41 @@ class FactureController {
     }
 
 
+    static async ajouterVersement(req, res) {
+        const factureId = req.params.id;
+            const { payment_method_id, amount, date, pdf_file } = req.body;
+            let conn;
+
+            try {
+                conn = await db.getConnection();
+                await conn.beginTransaction();
+
+                // Ajouter le versement
+                await conn.query(
+                    "INSERT INTO installments (payment_method_id, amount, date, pdf_file) VALUES (?, ?, ?, ?)",
+                    [payment_method_id, amount, date || new Date(), pdf_file || null]
+                );
+
+                // Mettre à jour le statut du paiement
+                await FactureController.updatePaymentStatus(conn, payment_method_id);
+
+                await conn.commit();
+
+                res.status(200).json({
+                    success: true,
+                    message: "Versement ajouté avec succès"
+                });
+
+            } catch (error) {
+                if (conn) await conn.rollback();
+                console.error("Erreur lors de l'ajout du versement:", error);
+                FactureController.handleServerError(res, error, "ajout du versement");
+            } finally {
+                if (conn) conn.release();
+            } 
+        }
+
+
             // Nouvelle méthode pour mettre à jour le statut de paiement
         static async updatePaymentStatus(conn, paymentMethodId) {
             // Récupérer le total de la facture associée
@@ -303,35 +340,51 @@ class FactureController {
         }
     }
     
-    static async ajouterMethodesPaiement(conn, factureId, paymentMethods) {
+    static async ajouterMethodesPaiement(conn, factureId, paymentMethods, req) {
+        // Créer le répertoire si nécessaire
+        const uploadDir = path.join(__dirname, '../Uploads/PDFs');
+        await fs.mkdir(uploadDir, { recursive: true });
+
+        // Récupérer les fichiers traités depuis req.processedFiles
+        const processedFiles = req.processedFiles || [];
+
         for (const method of paymentMethods) {
             const [methodResult] = await conn.query(
-                "INSERT INTO payment_methods (facture_id, method, status) VALUES (?, ?, ?)",
-                [
-                    factureId, 
-                    method.method,
-                    method.status || 'pending' // Nouveau champ status
-                ]
+            "INSERT INTO payment_methods (facture_id, method, status) VALUES (?, ?, ?)",
+            [factureId, method.method, method.status || 'pending']
             );
-            
+
             if (method.installments && method.installments.length > 0) {
-                for (const installment of method.installments) {
-                    await conn.query(
-                        "INSERT INTO installments (payment_method_id, amount, date, pdf_file) VALUES (?, ?, ?, ?)",
-                        [
-                            methodResult.insertId,
-                            installment.amount,
-                            installment.date || null,
-                            installment.pdfFile || null
-                        ]
-                    );
+            for (const [index, installment] of method.installments.entries()) {
+                let pdfPath = null;
+
+                // Associer un fichier PDF si disponible
+                if (installment.pdfFile && processedFiles.length > 0) {
+                // Trouver le fichier par fieldname ou index
+                const file = processedFiles.find(
+                    f => f.originalname === installment.pdfFile || f.fieldname === `installment-${index}`
+                );
+                if (file) {
+                    pdfPath = file.path; // Chemin relatif, ex: Uploads/PDFs/pdf-123456.pdf
                 }
-                 // Mettre à jour le statut si des versements sont ajoutés
-                await this.updatePaymentStatus(conn, methodResult.insertId);
+                }
+
+                await conn.query(
+                "INSERT INTO installments (payment_method_id, amount, date, pdf_file) VALUES (?, ?, ?, ?)",
+                [
+                    methodResult.insertId,
+                    installment.amount,
+                    installment.date || null,
+                    pdfPath
+                ]
+                );
+            }
+
+            // Mettre à jour le statut si des versements sont ajoutés
+            await this.updatePaymentStatus(conn, methodResult.insertId);
             }
         }
-    }
-    
+    } 
 
     static async getFacturePaymentStatus(conn, factureId) {
         const [results] = await conn.query(`
@@ -430,7 +483,7 @@ class FactureController {
             
             // 4. Ajout des méthodes de paiement
             if (paymentMethods && paymentMethods.length > 0) {
-                await FactureController.ajouterMethodesPaiement(conn, factureId, paymentMethods);
+                await FactureController.ajouterMethodesPaiement(conn, factureId, paymentMethods, req);
             }
     
             // 5. Ajout des articles et mise à jour du stock
@@ -524,7 +577,7 @@ class FactureController {
             
             // Ajout des méthodes de paiement
             if (paymentMethods && paymentMethods.length > 0) {
-                await FactureController.ajouterMethodesPaiement(conn, factureId, paymentMethods);
+                await FactureController.ajouterMethodesPaiement(conn, factureId, paymentMethods, req);
             }
     
             // Ajout des articles et mise à jour du stock
