@@ -5,7 +5,7 @@ const FileService = require('../services/fileService');
 // Configuration pour les images
 const imageStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'Uploads/images/');
+    cb(null, 'uploads/images/');
   },
   filename: (req, file, cb) => {
     cb(null, Date.now() + '-' + file.originalname);
@@ -15,7 +15,7 @@ const imageStorage = multer.diskStorage({
 // Configuration pour les PDFs
 const pdfStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'Uploads/PDFs/');
+    cb(null, 'uploads/PDFs/');
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -84,7 +84,7 @@ const processPDFs = async (req, res, next) => {
       req.processedFiles = req.files.map(file => ({
         originalname: file.originalname,
         filename: file.filename,
-        path: path.join('Uploads/PDFs', file.filename).replace(/\\/g, '/')
+        path: path.join('uploads/PDFs', file.filename).replace(/\\/g, '/')
       }));
     } else {
       req.processedFiles = [];
