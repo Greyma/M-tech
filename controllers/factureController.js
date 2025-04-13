@@ -194,77 +194,6 @@ class FactureController {
         }
     }
 
-
-    static async ajouterVersement(req, res) {
-        const factureId = req.params.id;
-            const { payment_method_id, amount, date, pdf_file } = req.body;
-            let conn;
-
-            try {
-                conn = await db.getConnection();
-                await conn.beginTransaction();
-
-                // Ajouter le versement
-                await conn.query(
-                    "INSERT INTO installments (payment_method_id, amount, date, pdf_file) VALUES (?, ?, ?, ?)",
-                    [payment_method_id, amount, date || new Date(), pdf_file || null]
-                );
-
-                // Mettre à jour le statut du paiement
-                await FactureController.updatePaymentStatus(conn, payment_method_id);
-
-                await conn.commit();
-
-                res.status(200).json({
-                    success: true,
-                    message: "Versement ajouté avec succès"
-                });
-
-            } catch (error) {
-                if (conn) await conn.rollback();
-                console.error("Erreur lors de l'ajout du versement:", error);
-                FactureController.handleServerError(res, error, "ajout du versement");
-            } finally {
-                if (conn) conn.release();
-            } 
-        }
-
-
-            // Nouvelle méthode pour mettre à jour le statut de paiement
-        static async updatePaymentStatus(conn, paymentMethodId) {
-            // Récupérer le total de la facture associée
-            const [paymentData] = await conn.query(`
-                SELECT f.prix_total, pm.method, 
-                    SUM(i.amount) as paid_amount
-                FROM payment_methods pm
-                JOIN factures f ON pm.facture_id = f.id
-                LEFT JOIN installments i ON pm.id = i.payment_method_id
-                WHERE pm.id = ?
-                GROUP BY pm.id
-            `, [paymentMethodId]);
-            
-            if (!paymentData.length) return;
-            
-            const { prix_total, method, paid_amount } = paymentData[0];
-            const totalPaid = parseFloat(paid_amount || 0);
-            const totalAmount = parseFloat(prix_total);
-            
-            let newStatus = 'pending';
-            
-            if (method === 'cash' && totalPaid >= totalAmount) {
-                newStatus = 'completed';
-            } else if (totalPaid >= totalAmount) {
-                newStatus = 'completed';
-            } else if (totalPaid > 0) {
-                newStatus = 'partial';
-            }
-            
-            await conn.query(
-                "UPDATE payment_methods SET status = ? WHERE id = ?",
-                [newStatus, paymentMethodId]
-            );
-        }
-
     static async deleteFacture(req, res) {
         const factureId = parseInt(req.params.id, 10);
         let conn;
@@ -342,7 +271,7 @@ class FactureController {
     
     static async ajouterMethodesPaiement(conn, factureId, paymentMethods, req) {
         // Créer le répertoire si nécessaire
-        const uploadDir = path.join(__dirname, '../Uploads/PDFs');
+        const uploadDir = path.join(__dirname, '../uploads/PDFs');
         await fs.mkdir(uploadDir, { recursive: true });
 
         // Récupérer les fichiers traités depuis req.processedFiles
@@ -365,7 +294,7 @@ class FactureController {
                     f => f.originalname === installment.pdfFile || f.fieldname === `installment-${index}`
                 );
                 if (file) {
-                    pdfPath = file.path; // Chemin relatif, ex: Uploads/PDFs/pdf-123456.pdf
+                    pdfPath = file.path; // Chemin relatif, ex: uploads/PDFs/pdf-123456.pdf
                 }
                 }
 
@@ -385,6 +314,76 @@ class FactureController {
             }
         }
     } 
+
+    static async ajouterVersement(req, res) {
+        const factureId = req.params.id;
+            const { payment_method_id, amount, date, pdf_file } = req.body;
+            let conn;
+
+            try {
+                conn = await db.getConnection();
+                await conn.beginTransaction();
+
+                // Ajouter le versement
+                await conn.query(
+                    "INSERT INTO installments (payment_method_id, amount, date, pdf_file) VALUES (?, ?, ?, ?)",
+                    [payment_method_id, amount, date || new Date(), pdf_file || null]
+                );
+
+                // Mettre à jour le statut du paiement
+                await FactureController.updatePaymentStatus(conn, payment_method_id);
+
+                await conn.commit();
+
+                res.status(200).json({
+                    success: true,
+                    message: "Versement ajouté avec succès"
+                });
+
+            } catch (error) {
+                if (conn) await conn.rollback();
+                console.error("Erreur lors de l'ajout du versement:", error);
+                FactureController.handleServerError(res, error, "ajout du versement");
+            } finally {
+                if (conn) conn.release();
+            } 
+        }
+
+
+            // Nouvelle méthode pour mettre à jour le statut de paiement
+        static async updatePaymentStatus(conn, paymentMethodId) {
+            // Récupérer le total de la facture associée
+            const [paymentData] = await conn.query(`
+                SELECT f.prix_total, pm.method, 
+                    SUM(i.amount) as paid_amount
+                FROM payment_methods pm
+                JOIN factures f ON pm.facture_id = f.id
+                LEFT JOIN installments i ON pm.id = i.payment_method_id
+                WHERE pm.id = ?
+                GROUP BY pm.id
+            `, [paymentMethodId]);
+            
+            if (!paymentData.length) return;
+            
+            const { prix_total, method, paid_amount } = paymentData[0];
+            const totalPaid = parseFloat(paid_amount || 0);
+            const totalAmount = parseFloat(prix_total);
+            
+            let newStatus = 'pending';
+            
+            if (method === 'cash' && totalPaid >= totalAmount) {
+                newStatus = 'completed';
+            } else if (totalPaid >= totalAmount) {
+                newStatus = 'completed';
+            } else if (totalPaid > 0) {
+                newStatus = 'partial';
+            }
+            
+            await conn.query(
+                "UPDATE payment_methods SET status = ? WHERE id = ?",
+                [newStatus, paymentMethodId]
+            );
+        }
 
     static async getFacturePaymentStatus(conn, factureId) {
         const [results] = await conn.query(`
@@ -675,6 +674,125 @@ class FactureController {
         }
     
         return { prix_total, produitsVerifies, errors };
+    }
+
+
+    static async modifierFactureGarantieVersement(req, res) {
+        const factureId = req.params.id;
+        const { articles, versements } = req.body;
+        let conn;
+    
+        if (!factureId) {
+            return FactureController.handleClientError(res, "ID de facture invalide");
+        }
+    
+        try {
+            conn = await db.getConnection();
+            await conn.beginTransaction();
+    
+            // Vérifier si la facture existe
+            const [facture] = await conn.query(
+                "SELECT id FROM factures WHERE id = ?",
+                [factureId]
+            );
+    
+            if (!facture.length) {
+                await conn.rollback();
+                return FactureController.handleNotFound(res, "Facture introuvable");
+            }
+    
+            // 1. Modification des garanties des articles
+            if (articles && articles.length > 0) {
+                for (const article of articles) {
+                    if (!article.article_facture_id || !article.duree_garantie || !article.code_garantie) {
+                        await conn.rollback();
+                        return FactureController.handleClientError(res, "Données de garantie incomplètes");
+                    }
+    
+                    await conn.query(
+                        `UPDATE articles_facture 
+                         SET duree_garantie = ?, code_garantie = ?
+                         WHERE id = ? AND facture_id = ?`,
+                        [
+                            article.duree_garantie,
+                            article.code_garantie,
+                            article.article_facture_id,
+                            factureId
+                        ]
+                    );
+                }
+            }
+    
+            // 2. Modification des versements
+            if (versements && versements.length > 0) {
+                for (const versement of versements) {
+                    if (!versement.payment_method_id || !versement.amount) {
+                        await conn.rollback();
+                        return FactureController.handleClientError(res, "Données de versement incomplètes");
+                    }
+    
+                    console.log(versement);
+                    // Vérifier si le payment_method_id appartient à la facture
+                    const [paymentMethod] = await conn.query(
+                        "SELECT id FROM payment_methods WHERE id = ? AND facture_id = ?",
+                        [versement.payment_method_id, factureId]
+                    );
+                    console.log(paymentMethod);
+    
+                    if (!paymentMethod.length) {
+                        await conn.rollback();
+                        return FactureController.handleClientError(res, "Méthode de paiement invalide pour cette facture");
+                    }
+    
+                    // Ajouter ou mettre à jour le versement
+                    if (versement.installment_id) {
+                        // Mise à jour d'un versement existant
+                        await conn.query(
+                            `UPDATE installments 
+                             SET amount = ?, date = ?, pdf_file = ?
+                             WHERE id = ? AND payment_method_id = ?`,
+                            [
+                                versement.amount,
+                                versement.date || new Date(),
+                                versement.pdf_file || null,
+                                versement.installment_id,
+                                versement.payment_method_id
+                            ]
+                        );
+                    } else {
+                        // Ajout d'un nouveau versement
+                        await conn.query(
+                            `INSERT INTO installments 
+                             (payment_method_id, amount, date, pdf_file) 
+                             VALUES (?, ?, ?, ?)`,
+                            [
+                                versement.payment_method_id,
+                                versement.amount,
+                                versement.date || new Date(),
+                                versement.pdf_file || null
+                            ]
+                        );
+                    }
+    
+                    // Mettre à jour le statut du paiement
+                    await FactureController.updatePaymentStatus(conn, versement.payment_method_id);
+                }
+            }
+    
+            await conn.commit();
+    
+            res.status(200).json({
+                success: true,
+                message: "Garanties et versements modifiés avec succès"
+            });
+    
+        } catch (error) {
+            if (conn) await conn.rollback();
+            console.error("Erreur lors de la modification de la facture:", error);
+            FactureController.handleServerError(res, error, "modification des garanties et versements");
+        } finally {
+            if (conn) conn.release();
+        }
     }
 
     static async ajouterArticlesFacture(conn, factureId, produits) {
