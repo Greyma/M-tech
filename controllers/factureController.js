@@ -277,10 +277,11 @@ class FactureController {
         // Récupérer les fichiers traités depuis req.processedFiles
         const processedFiles = req.processedFiles || [];
 
+        
         for (const method of paymentMethods) {
             const [methodResult] = await conn.query(
-            "INSERT INTO payment_methods (facture_id, method, status) VALUES (?, ?, ?)",
-            [factureId, method.method, method.status || 'pending']
+            "INSERT INTO payment_methods (facture_id, method) VALUES (?, ?)",
+            [factureId, method.method || 'cash']
             );
 
             if (method.installments && method.installments.length > 0) {
@@ -294,7 +295,7 @@ class FactureController {
                     f => f.originalname === installment.pdfFile || f.fieldname === `installment-${index}`
                 );
                 if (file) {
-                    pdfPath = file.path; // Chemin relatif, ex: uploads/PDFs/pdf-123456.pdf
+                    pdfPath = file.path;
                 }
                 }
 

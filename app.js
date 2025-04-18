@@ -7,7 +7,6 @@ const port = process.env.PORT || 5478;
 
 // Import des routes
 const authRoutes = require('./routes/authRoutes');
-// ... autres imports de routes ...
 
 // Middlewares
 app.use(nocache());
@@ -47,4 +46,4 @@ app.listen(port, () => {
     console.log(`Serveur démarré sur http://localhost:${port}`);
 });
 
-module.exports = app; // Pour les tests
+module.exports = app; 
