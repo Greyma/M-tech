@@ -15,6 +15,7 @@ router.post('/with-client', uploadPDFMiddleware, FactureController.createFacture
 // PUT /api/factures/:id - Ajoute ou modifie un versement à une méthode de paiement  et modifie une garantie
 router.put('/:id', FactureController.modifierFactureGarantieVersement);
 
+router.put('/status/:id', FactureController.modifierFactureStatus);
 // DELETE /api/factures/:id - Supprime une facture
 router.delete('/:id', FactureController.deleteFacture);
 

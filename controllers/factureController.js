@@ -838,8 +838,55 @@ class FactureController {
         }));
     }
 
+        static async modifierFactureStatus(req, res) {
+            const factureId = req.params.id; 
+            const {status} = req.body;
+            let conn;
 
-    
+            try {
+
+                console.log("Nouveau status:", req.body);
+            // Valider le statut
+            const validStatuses = ["pending", "paid", "canceled"];
+            if (!status || !validStatuses.includes(status)) {
+                return res.status(400).json({
+                success: false,
+                message: `Statut invalide. Les statuts valides sont : ${validStatuses.join(", ")}`,
+                });
+            }
+
+            // Obtenir une connexion à la base de données
+            conn = await db.getConnection();
+
+            // Vérifier si la facture existe
+            const [factureRows] = await conn.query("SELECT id FROM factures WHERE id = ?", [factureId]);
+            if (factureRows.length === 0) {
+                return res.status(404).json({
+                success: false,
+                message: `Facture avec l'ID ${factureId} non trouvée`,
+                });
+            }
+
+            // Mettre à jour le statut de la facture
+            await conn.query("UPDATE factures SET status = ? WHERE id = ?", [status, factureId]);
+
+            // Confirmer la mise à jour
+            res.status(200).json({
+                success: true,
+                message: `Le statut de la facture ${factureId} a été mis à jour à "${status}"`,
+            });
+            } catch (error) {
+            console.error("Erreur lors de la mise à jour du statut de la facture:", error);
+            res.status(500).json({
+                success: false,
+                message: "Erreur serveur lors de la mise à jour du statut",
+                error: error.message,
+            });
+            } finally {
+            if (conn) conn.release();
+            }
+        }
+
 
     static async recupererArticlesFacture(conn, factureId) {
         if (!factureId) throw new Error("Facture ID invalide");
