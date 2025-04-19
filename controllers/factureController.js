@@ -54,6 +54,7 @@ class FactureController {
                     f.delivery_code,
                     f.installment_remark,
                     f.comment,
+                    f.status,
                     p.id AS produit_id,
                     p.nom AS produit_nom,
                     af.prix AS produit_prix_vente,
@@ -87,7 +88,6 @@ class FactureController {
                         pm.id AS payment_method_id,
                         pm.facture_id,
                         pm.method,
-                        pm.status, 
                         i.id AS installment_id,
                         i.amount,
                         i.date,
@@ -123,7 +123,6 @@ class FactureController {
                     if (!paymentMethod) {
                         paymentMethod = {
                             method: row.method,
-                            status: row.status || 'en cours', // Inclure le statut
                             installments: []
                         };
                         paymentsByInvoice[row.facture_id].push(paymentMethod);
@@ -165,6 +164,7 @@ class FactureController {
                             },
                             installment_remark: row.installment_remark,
                             comment: row.comment,
+                            status: row.status || 'pending',
                             payment_methods: payments[factureId] || [],
                             produits: [] 
                         };
@@ -284,6 +284,8 @@ class FactureController {
             [factureId, method.method || 'cash']
             );
 
+            
+           
             if (method.installments && method.installments.length > 0) {
             for (const [index, installment] of method.installments.entries()) {
                 let pdfPath = null;

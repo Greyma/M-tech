@@ -47,7 +47,7 @@ const databaseSchema = {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             `
         },
-        {
+        { 
             name: 'produits',
             schema: `
                 CREATE TABLE IF NOT EXISTS produits (
@@ -127,6 +127,7 @@ const databaseSchema = {
                     delivery_price DECIMAL(10,2) DEFAULT 0,
                     delivery_code VARCHAR(50) NULL,
                     installment_remark TEXT NULL,
+                    status ENUM('pending', 'paid', 'canceled') NOT NULL DEFAULT 'pending',
                     comment TEXT NULL,
                     FOREIGN KEY (client_id) REFERENCES clients(id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
