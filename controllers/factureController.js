@@ -239,8 +239,8 @@ class FactureController {
             INSERT INTO factures (
                 id, client_id, prix_total, sale_type, sale_mode, 
                 delivery_provider, delivery_price, delivery_code, 
-                installment_remark, comment
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                installment_remark, comment,status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
         `;
         
         const params = [
@@ -253,7 +253,8 @@ class FactureController {
             factureData.delivery_price || 0,
             factureData.delivery_code || null,
             factureData.installment_remark || null,
-            factureData.comment || null
+            factureData.comment || null, 
+            factureData.status || 'pending'
         ];
     
         try {
