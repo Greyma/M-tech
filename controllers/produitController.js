@@ -17,7 +17,7 @@ class ProduitController {
                 p.ecran_pouce, p.ecran_tactile, p.ecran_type,
                 p.stockage_ssd, p.stockage_hdd, 
                 p.gpu_1, p.gpu_2,
-                p.prix_achat, p.prix_vente, p.prix_final,
+                p.prix_achat, p.prix_vente,
                 p.batterie, p.code_amoire, p.reference, p.etat,
                 p.quantite, p.categorie_id, p.image,
                 c.nom AS categorie_nom
@@ -61,7 +61,7 @@ class ProduitController {
                 p.ecran_pouce, p.ecran_tactile, p.ecran_type,
                 p.stockage_ssd, p.stockage_hdd, 
                 p.gpu_1, p.gpu_2,
-                p.prix_achat, p.prix_vente, p.prix_final,
+                p.prix_achat, p.prix_vente,
                 p.batterie, p.code_amoire, p.reference, p.etat,
                 p.quantite, p.categorie_id, p.image,
                 c.nom AS categorie_nom
