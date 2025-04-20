@@ -195,7 +195,7 @@ class FactureController {
     }
 
     static async deleteFacture(req, res) {
-        const factureId = parseInt(req.params.id, 10);
+        const factureId = req.params.id;
         let conn;
 
         if (isNaN(factureId)) {
