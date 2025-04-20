@@ -312,9 +312,6 @@ class FactureController {
                 ]
                 );
             }
-
-            // Mettre à jour le statut si des versements sont ajoutés
-            await this.updatePaymentStatus(conn, methodResult.insertId);
             }
         }
     } 
@@ -334,9 +331,7 @@ class FactureController {
                     [payment_method_id, amount, date || new Date(), pdf_file || null]
                 );
 
-                // Mettre à jour le statut du paiement
-                await FactureController.updatePaymentStatus(conn, payment_method_id);
-
+                // 
                 await conn.commit();
 
                 res.status(200).json({
@@ -351,42 +346,6 @@ class FactureController {
             } finally {
                 if (conn) conn.release();
             } 
-        }
-
-
-            // Nouvelle méthode pour mettre à jour le statut de paiement
-        static async updatePaymentStatus(conn, paymentMethodId) {
-            // Récupérer le total de la facture associée
-            const [paymentData] = await conn.query(`
-                SELECT f.prix_total, pm.method, 
-                    SUM(i.amount) as paid_amount
-                FROM payment_methods pm
-                JOIN factures f ON pm.facture_id = f.id
-                LEFT JOIN installments i ON pm.id = i.payment_method_id
-                WHERE pm.id = ?
-                GROUP BY pm.id
-            `, [paymentMethodId]);
-            
-            if (!paymentData.length) return;
-            
-            const { prix_total, method, paid_amount } = paymentData[0];
-            const totalPaid = parseFloat(paid_amount || 0);
-            const totalAmount = parseFloat(prix_total);
-            
-            let newStatus = 'pending';
-            
-            if (method === 'cash' && totalPaid >= totalAmount) {
-                newStatus = 'completed';
-            } else if (totalPaid >= totalAmount) {
-                newStatus = 'completed';
-            } else if (totalPaid > 0) {
-                newStatus = 'partial';
-            }
-            
-            await conn.query(
-                "UPDATE payment_methods SET status = ? WHERE id = ?",
-                [newStatus, paymentMethodId]
-            );
         }
 
     static async getFacturePaymentStatus(conn, factureId) {
