@@ -7,7 +7,7 @@ async function generateFactureId() {
     const prefix = 'FAC';
     const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
     let conn;
-  
+
     try {
       conn = await db.getConnection();
       
@@ -15,7 +15,7 @@ async function generateFactureId() {
         'SELECT COUNT(*) AS count FROM factures WHERE id LIKE ?',
         [`${prefix}${datePart}%`]
       );
-  
+
       const count = (rows[0]?.count || 0) + 1;
       const countPart = String(count).padStart(4, '0');
   
@@ -32,7 +32,7 @@ async function generateFactureId() {
   }
 
 class FactureController {
-    
+
     static async getAllFactures(req, res) {
         try {
             await db.testConnection();
@@ -83,8 +83,7 @@ class FactureController {
             const connection = await db.pool.getConnection();
             try {
                 const [payment_methods, fields] = await connection.execute(
-                    `
-                    SELECT 
+                    `SELECT 
                         pm.id AS payment_method_id,
                         pm.facture_id,
                         pm.method,
@@ -123,6 +122,7 @@ class FactureController {
                     if (!paymentMethod) {
                         paymentMethod = {
                             method: row.method,
+                            payment_method_id: row.payment_method_id,
                             installments: []
                         };
                         paymentsByInvoice[row.facture_id].push(paymentMethod);
@@ -130,6 +130,7 @@ class FactureController {
         
                     if (row.installment_id) {
                         paymentMethod.installments.push({
+                            installment_id: row.installment_id,
                             amount: row.amount ? Number(row.amount).toFixed(2) : '0.00',
                             date: row.date || null,
                             pdf_file: row.pdf_file || null
@@ -198,14 +199,14 @@ class FactureController {
         const factureId = req.params.id;
         let conn;
 
-        if (isNaN(factureId)) {
+        if (factureId.length < 10) {
             return FactureController.handleClientError(res, "ID de facture invalide");
         }
 
         try {
             conn = await db.getConnection();
             await conn.beginTransaction();
-
+            
             const articles = await FactureController.recupererArticlesFacture(conn, factureId);
             
             if (!articles?.length) {
@@ -269,6 +270,73 @@ class FactureController {
             throw error;
         }
     }
+    
+    static async ajouterPaiement(req, res) {
+        const factureId = req.params.id;
+        const paymentMethods = req.body.paymentMethods ? JSON.parse(req.body.paymentMethods) : [];
+        let conn; 
+
+        try {
+            
+
+        conn = await db.getConnection();
+        // Créer le répertoire si nécessaire
+        const uploadDir = path.join(__dirname, '../uploads/PDFs');
+        await fs.mkdir(uploadDir, { recursive: true });
+
+        // Récupérer les fichiers traités depuis req.processedFiles
+        const processedFiles = req.processedFiles || [];
+
+        
+        for (const method of paymentMethods) {
+            const [methodResult] = await conn.query(
+            "INSERT INTO payment_methods (facture_id, method) VALUES (?, ?)",
+            [factureId, method.method || 'cash']
+            );
+
+            
+           
+            if (method.installments && method.installments.length > 0) {
+            for (const [index, installment] of method.installments.entries()) {
+                let pdfPath = null;
+
+                // Associer un fichier PDF si disponible
+                if (installment.pdfFile && processedFiles.length > 0) {
+                // Trouver le fichier par fieldname ou index
+                const file = processedFiles.find(
+                    f => f.originalname === installment.pdfFile || f.fieldname === `installment-${index}`
+                );
+                if (file) {
+                    pdfPath = file.path;
+                }
+                }
+
+                await conn.query(
+                "INSERT INTO installments (payment_method_id, amount, date, pdf_file) VALUES (?, ?, ?, ?)",
+                [
+                    methodResult.insertId,
+                    installment.amount,
+                    installment.date || null,
+                    pdfPath
+                ]
+                );
+            }
+            }
+        }
+
+        res.status(200).json({ 
+            success: true,
+            message: `Vercement ajouté avec succées avec succès`
+        });
+
+        } catch (error) {
+            res.status(401).json({ 
+                success: false,
+                message: `Erreur ${error}`
+            });   
+        }
+
+    } 
     
     static async ajouterMethodesPaiement(conn, factureId, paymentMethods, req) {
         // Créer le répertoire si nécessaire
@@ -736,9 +804,6 @@ class FactureController {
                             ]
                         );
                     }
-    
-                    // Mettre à jour le statut du paiement
-                    await FactureController.updatePaymentStatus(conn, versement.payment_method_id);
                 }
             }
     
@@ -803,9 +868,7 @@ class FactureController {
             let conn;
 
             try {
-
-                console.log("Nouveau status:", req.body);
-            // Valider le statut
+                
             const validStatuses = ["pending", "paid", "canceled"];
             if (!status || !validStatuses.includes(status)) {
                 return res.status(400).json({
@@ -814,10 +877,8 @@ class FactureController {
                 });
             }
 
-            // Obtenir une connexion à la base de données
             conn = await db.getConnection();
 
-            // Vérifier si la facture existe
             const [factureRows] = await conn.query("SELECT id FROM factures WHERE id = ?", [factureId]);
             if (factureRows.length === 0) {
                 return res.status(404).json({
@@ -826,10 +887,8 @@ class FactureController {
                 });
             }
 
-            // Mettre à jour le statut de la facture
             await conn.query("UPDATE factures SET status = ? WHERE id = ?", [status, factureId]);
 
-            // Confirmer la mise à jour
             res.status(200).json({
                 success: true,
                 message: `Le statut de la facture ${factureId} a été mis à jour à "${status}"`,
