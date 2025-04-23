@@ -9,7 +9,7 @@ router.post('/', uploadPDFMiddleware, FactureController.createFacture);
 
 router.post('/with-client', uploadPDFMiddleware, FactureController.createFactureWithClient);
 
-router.post('/add-versement', uploadPDFMiddleware, FactureController.ajouterPaiement);
+router.post('/add-versement/:id', uploadPDFMiddleware, FactureController.ajouterPaiement);
 
 router.put('/:id', FactureController.modifierFactureGarantieVersement);
 
