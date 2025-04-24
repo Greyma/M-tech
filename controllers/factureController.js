@@ -743,11 +743,11 @@ class FactureController {
                     await conn.query(
                         `UPDATE articles_facture 
                          SET duree_garantie = ?, code_garantie = ?
-                         WHERE id = ? AND facture_id = ?`,
+                         WHERE produit_id = ? AND facture_id = ?`,
                         [
                             article.duree_garantie,
                             article.code_garantie,
-                            article.article_facture_id,
+                            decodeBarcode(article.article_facture_id).id,
                             factureId
                         ]
                     );
